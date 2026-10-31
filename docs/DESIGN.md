@@ -75,24 +75,27 @@ Listen unter dem Cursor (Personen, Verweise, Platzhalter, Datumsauswahl, Tabelle
 | Option | Wofür | NoNotes | SteeringBoard |
 | --- | --- | --- | --- |
 | `value`, `updatedAt`, `readOnly`, `mode`, `kind`, `remember`, `onMode(mode, ed)` | Inhalt, Stand, Schreibschutz, Darstellung (`edit`/`split`/`preview`, unter `kind` gemerkt oder vom Gastgeber) | Notiz, `readOnly()` der Hülle, Archiv, Papierkorb; Darstellung unter `nonotes.editorMode` wie bisher | Feld eines Eintrags, `kind: 'long'/'short'` |
-| `ids` | feste Kennungen (`body`, `preview`, `toolbar`, `heading`, `modeSwitch`, `help`, `attach`, `attachInput`, `attachments`, `mentionPopup`, `wikiPopup`, `wikiCount`, `wikiList`, `phHint`, `root`) | `#body`, `#preview`, `#mdToolbar`, `#modeSwitch`, `#attachBtn` … wie heute (Tests, CSS) | ohne |
+| `ids` | feste Kennungen (`body`, `preview`, `toolbar`, `heading`, `modeSwitch`, `help`, `attach`, `attachInput`, `attachments`, `mentionPopup`, `wikiPopup`, `wikiCount`, `wikiList`, `phHint`, `root`, `editorBody`, `mirror`, `tablePicker`, `questionBtn`, `answerBtn`, `decisionBtn`) | `#body`, `#preview`, `#mdToolbar`, `#modeSwitch`, `#attachBtn` … wie heute (Tests, CSS) | ohne |
 | `onInput(text, ed)` | nach jeder Änderung, sofort | eigenes Speichern mit Zusammenführen (`onEdit`/`saveNote`) | – |
 | `onChange(text, { baseUpdatedAt })`, `saveDelay`, `reload()`, `resolveConflict({ mine, theirs })` | Speichern durch das Paket: verzögert, Ctrl+S, beim Verlassen, `flush()`; `CONFLICT`/`NOTE_CONFLICT` → `reload` → Wahl `'reload'`/`'mine'` | – | Speichern des Felds, Dialog «Neu laden / Meine Fassung behalten» |
 | `attachments: { list, get, add, remove, maxBytes, maxEdge }` | Bilder `![Name](att:ID)`: Leiste, Einfügen, Ablegen, Zwischenablage, Verkleinern | `B.listAttachments`, `getAttachment` (`data`), `addAttachment`, `deleteAttachment` | Bilder des Eintrags (`bytes`) |
 | `refs: { list, resolver, open, cross }` | `[[…]]`: Vorschläge (`title`, `insert`, `parent`, `path`, `dup`, `archived`, `updated`), Auflösung für die Vorschau (`resolver(text)` → `resolveRef`), Klick | `getTree` + `NoNotesLinks.resolver(titleIndex)`, `openNote`, Querverweise | Codes `[[V-001]]` über `SteeringBoardRefs` |
 | `render(text, ed)` | weitere Angaben an `NoNotesMarkdown.render` (`highlight`, `noteLink` …) | Suchtreffer, Links auf Notizen (`noteLinkResolver`) | – |
 | `onLinkClick(a, event, ed)` | eigene Links in der Vorschau (true = erledigt) | `a.md-note` (`followNoteLink`) | Links auf Einträge |
-| `people` | `@kürzel` über `NoNotesMentions` (Lieferanten meldet der Gastgeber an) | lokale Kürzel, `ctx.people.provide` | Personen des Portfolios |
-| `placeholders: { keep(), onFill(name, value, keep), extraText() }` | ausfüllbare Platzhalter: Einstellung «behalten», gleiche Namen ausserhalb des Texts | der Titel der Notiz (`leaveTitleField`) | Vorlagen der Felder |
+| `people` | `@kürzel` über `NoNotesMentions` (Lieferanten meldet der Gastgeber an); `false` schaltet ab; `{ keepTyped: true }`: der Gastgeber lässt das getippte Wort selbst weg, ein gleiches Kürzel von anderswo bleibt in der Liste | lokale Kürzel, `ctx.people.provide`, `{ keepTyped: true }` | Personen des Portfolios |
+| `placeholders: { keep(), field, onFill(name, value, keep, { field, data }), extraText() }` | ausfüllbare Platzhalter: Einstellung «behalten»; `field`: ein Eingabefeld vor dem Text, dessen offene Platzhalter zuerst drankommen (Tab/Enter in den Text, Umschalt+Tab zurück, gleiche Namen in beiden); `onFill` für gleiche Namen beim Gastgeber (vor dem Aufräumen der Beschreibungen), `data` aus `startPlaceholders` | `field: #title`, `onFill` füllt die Unternotizen einer Vorlage | Vorlagen der Felder |
 | `history: { label, title, open(ed) }`, `templates: { insert(ed), save(ed) }`, `actions: [{ id, label, title, run(ed) }]`, `help(ed)` | Knöpfe des Gastgebers neben der Toolleiste, F1 | Verlauf und Vorlagen bleiben im Notizmenü; `help` öffnet die Hilfe | Verlauf…, Vorlagen, «Entscheid erfassen…» |
-| `showMenu(items, x, y)`, `confirm(text, opts)`, `hint(text)`, `onError(e)` | Kontextmenüs (Tabellen, Pfade, Platzhalter), Rückfragen, Hinweise | `showContextMenu`, `confirm`, Statuszeile | `SteeringBoardUI` |
+| `showMenu(items, x, y)`, `confirm(text, opts)`, `hint(text, kind)`, `onError(e)` | Kontextmenüs (Tabellen, Pfade, Platzhalter), Rückfragen, Hinweise | `showContextMenu`, `confirm`, Statuszeile | `SteeringBoardUI` |
 | `counts`, `answers`, `modernizeDates`, `dates`, `entity` | Zähler in der Fusszeile, «Beantworten»/«Entscheiden» in der Vorschau, alte `@Datum` umschreiben, Datumsauswahl, Angaben für Erweiterungen | `modernizeDates: true` | `counts`, `answers`, `entity` |
 
 Rückgabe: `el`, `textarea`, `preview`, `toolbar`, `get()`, `set(text, updatedAt)`, `focus()`, `setReadOnly(b)`, `isReadOnly()`,
 `isWritable()`, `mode(name?)`, `insert(text, { keep })` (startet das Ausfüllen von Platzhaltern), `insertAtCursor(text)`, `selection()`,
 `replaceSelection(text)`, `applyEdit({ text, selStart, selEnd })`, `runCommand(cmd)`, `counts()`, `isDirty()`, `flush()`, `renderPreview()`,
-`renderAttachments()`, `addAttachments(files)`, `forgetAttachment(id)`, `fillPlaceholders({ keep })`, `startPlaceholders(opts)`,
-`updateTableMeta(line, fn)`, `refreshExtensions()`, `closePopups()`, `destroy()`.
+`renderAttachments()`, `addAttachments(files)`, `forgetAttachment(id)` (ohne `id`: alle, etwa nach dem Wechsel der Datenbank),
+`fillPlaceholders({ keep, data })`, `startPlaceholders({ start, end, keep, data })`, `updateTableMeta(line, fn)`, `selectLine(lineIndex)`
+(Zeile wählen und ins obere Drittel scrollen), `refresh()` (nachdem der Gastgeber `textarea.value` selbst gesetzt hat: Zähler, Schrift,
+Vorschau), `refreshExtensions()`, `closePopups()`, `destroy()`. `hint(text, kind)`: `kind` ist `'error'` bei Fehlern, `'saving'` während
+Bilder eingefügt werden, sonst leer.
 
 Für die ganze Seite:
 
@@ -186,8 +189,12 @@ Programm, sonst das von Playwright. Was Datenbank, Export, Agenten und die App b
 
 ### NoNotes v4.0.0
 
-Erprobt in einer Arbeitskopie von v3.3.0 (nichts davon ist in NoNotes eingecheckt): mit den Schritten 1–6 läuft `npm test` von NoNotes
-gegen das Paket vollständig durch.
+Umgesetzt in NoNotes v4.0.0 (alle Schritte 1–8; `npm test` von NoNotes läuft gegen das Paket durch, die Screenshots der Release-Notizen
+sind mit v3.3.0 Pixel für Pixel gleich). Abweichend von unten: der Build nimmt die Dateien über `files.cjs` (zwei Platzhalter in der
+Seitenvorlage statt Verweisen auf `node_modules`), Node-Teile finden das Paket über `require.resolve`. Dafür kamen in v1.0.0 dazu:
+`ids.editorBody`, `ids.mirror`, `ids.tablePicker`, `placeholders.field` und `onFill(…, { field, data })`, `people.keepTyped`, `refresh()`,
+`selectLine()`, `forgetAttachment()` ohne Kennung, `hint(text, kind)`; dazu wie in NoNotes: Doppelklick in der Vorschau nur auf der
+nächsten Zeile der Liste, Listen unter dem Cursor bleiben innerhalb des Editors.
 
 1. `package.json`: `"nonotes-editor": "github:CDRO/NoNotes-editor#v1.0.0"` in `devDependencies`.
 2. `packages/ui/index.html`: die elf Skripte durch die des Pakets ersetzen, `labels.js` und `lang/editor.*.js` zuerst, `editor.css` vor
