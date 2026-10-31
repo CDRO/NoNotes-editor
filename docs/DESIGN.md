@@ -233,15 +233,17 @@ gegen das Paket vollständig durch.
 - Später können Erweiterungen `NoNotesEditor.focused()` und die Rückgabe des Bausteins nutzen; das bleibt Sache der Plugin-Schnittstelle
   von NoNotes (Version 1.x).
 
-## 10. Offene Fragen
+## 10. Entscheide (früher offene Fragen)
 
-1. Soll das Paket die weiteren Sprachpakete von NoNotes (fr-CH, it-CH, es, pt, de-DE) für den Editor mitbringen? Heute: nur de/en; NoNotes
-   übersetzt über seinen Übersetzer.
-2. `links.js` (Querverweise, `[[Titel#42]]`) bleibt in NoNotes, weil der Index in der Datenbank liegt. Gehört die reine Syntax (`parseRef`,
-   `lookup`) später ins Paket?
-3. Der Verlaufsdialog bleibt beim Gastgeber (`history.open`). SteeringBoard hat einen eigenen Dialog für Felder; ein gemeinsamer Dialog
-   im Paket wäre möglich (`NoNotesHistory` bliebe in NoNotes).
-4. Zwei Befunde in den Tests von NoNotes v3.3.0, unabhängig vom Paket: `test/core.cjs` (Platzhalter) hängt vom Datum ab – am 31.10.2026
-   schreibt die Vorschau «heute · 31.10.2026» und der Vergleich schlägt fehl (im Paket mit fester Uhr gelöst; NoNotes v4.0.0 ebenso);
-   `test/app.cjs` (Pfade, «Ordner öffnen») liest die Adresse des neuen Tabs, bevor er geladen ist (`await folder.waitForLoadState()` fehlt;
-   mit neuerem Chromium leer).
+Vom Eigentümer entschieden (v1.0.0):
+
+1. **Sprachen im Paket:** vorerst nur Deutsch und Englisch. Weitere Sprachen übersetzt der Gastgeber über sein eigenes Sprachsystem
+   (in NoNotes die neun Sprachpakete über NoNotesI18n, siehe 5).
+2. **Verweise:** `links.js` (Querverweise, `[[Titel#42]]`) bleibt ganz in NoNotes, auch die reine Syntax (`parseRef`, `lookup`); sie
+   wandert nicht ins Paket. Der Editor bekommt Verweise nur über `refs`.
+3. **Verlauf:** kein gemeinsamer Verlaufsdialog im Paket. Der Verlauf gehört wie alles Speichern dem Gastgeber, der den Editor einbindet;
+   NoNotes-editor bestimmt nicht, wie Daten gespeichert werden, und bietet nur den Haken `history: { label, title, open(ed) }`.
+
+Befunde in den Tests von NoNotes v3.3.0, unabhängig vom Paket (in NoNotes v4.0.0 behoben): `test/core.cjs` (Platzhalter) hing vom Datum
+ab – am 31.10.2026 schrieb die Vorschau «heute · 31.10.2026» und der Vergleich schlug fehl (jetzt mit fester Uhr wie im Paket);
+`test/app.cjs` (Pfade, «Ordner öffnen») las die Adresse des neuen Tabs, bevor er geladen war (jetzt mit `waitForLoadState()`).
