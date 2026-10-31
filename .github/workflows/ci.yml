@@ -1,0 +1,34 @@
+name: Testen
+
+# Bei jedem Push auf main und bei Pull Requests nach main: Katalog der Texte, Engine (Node) und Editor (Chromium per file://).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: npm test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v5
+
+      - name: Node einrichten
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren (nur für den Test)
+        run: npm ci
+
+      - name: Chromium für Playwright installieren
+        run: npx playwright install --with-deps chromium
+
+      - name: Testen
+        run: npm test

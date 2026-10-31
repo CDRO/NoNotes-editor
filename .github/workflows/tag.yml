@@ -1,0 +1,67 @@
+name: Version taggen
+
+# Von Hand (Actions → «Version taggen» → Run workflow) mit einer Version wie v1.0.0: prüft, dass package.json dieselbe Version nennt,
+# testet den gewählten Stand und legt nur den Tag an (kein Release, kein Paket in einer Registry). Gastgeber binden das Paket über den
+# Tag ein: "nonotes-editor": "github:CDRO/NoNotes-editor#v1.0.0".
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, z. B. v1.0.0 (muss zu package.json passen)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Testen und Tag anlegen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v5
+
+      - name: Version prüfen
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${INPUT_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Ungültige Version '${INPUT_VERSION}', erwartet z. B. v1.0.0" >&2
+            exit 1
+          fi
+          PKG="v$(node -p 'require("./package.json").version')"
+          if [[ "${PKG}" != "${INPUT_VERSION}" ]]; then
+            echo "package.json nennt ${PKG}, nicht ${INPUT_VERSION}" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${INPUT_VERSION}" >/dev/null 2>&1; then
+            echo "Den Tag ${INPUT_VERSION} gibt es schon" >&2
+            exit 1
+          fi
+
+      - name: Node einrichten
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren (nur für den Test)
+        run: npm ci
+
+      - name: Chromium für Playwright installieren
+        run: npx playwright install --with-deps chromium
+
+      - name: Testen
+        run: npm test
+
+      - name: Tag anlegen (nur der Tag, kein Release)
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${VERSION}" -m "NoNotes-editor ${VERSION}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${VERSION}"
+          echo "Tag ${VERSION} auf ${GITHUB_SHA} angelegt."

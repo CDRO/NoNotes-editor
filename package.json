@@ -1,0 +1,27 @@
+{
+  "name": "nonotes-editor",
+  "version": "1.0.0",
+  "description": "Markdown-Engine und Editor aus NoNotes: reine Browser-Skripte (je ein globaler Name), ohne Bündler und ohne Abhängigkeiten zur Laufzeit. Der Gastgeber kopiert die Dateien in seinen Build.",
+  "license": "MIT",
+  "author": "CDRO",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CDRO/NoNotes-editor.git"
+  },
+  "files": [
+    "src/",
+    "lang/",
+    "docs/",
+    "files.cjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "main": "files.cjs",
+  "scripts": {
+    "test": "node tools/labels.cjs check && node test/engine.cjs && node test/editor.cjs",
+    "labels": "node tools/labels.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

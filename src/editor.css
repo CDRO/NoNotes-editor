@@ -1,0 +1,287 @@
+/* NoNotes-editor – Stylesheet des Editors und der Markdown-Darstellung (aus NoNotes v3.3.0 packages/ui/app.css).
+   Keine externen Schriften, läuft offline. Die Farben kommen aus den Variablen des Gastgebers (--bg, --panel, --text, --muted, --border,
+   --accent, --accent-contrast, --accent-ink, --danger, --ok, --warn, --hover, --active, --radius, --shadow); fehlen sie, gelten die
+   Vorgaben unten. :where(:root) hat keine Spezifität: jede Angabe des Gastgebers auf :root gewinnt, egal in welcher Reihenfolge.
+   Wurzel des Bausteins: .nn-editor mit .mode-edit / .mode-split / .mode-preview; die Darstellung .md gilt überall, wo NoNotesMarkdown
+   rendert (Vorschau, Listen, Druck). */
+
+:where(:root) {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #1c1e22;
+  --muted: #6b7280;
+  --border: #e2e5ea;
+  --accent: #2563eb;
+  --accent-contrast: #ffffff;
+  --accent-ink: #2563eb;
+  --danger: #b4350f;
+  --ok: #15803d;
+  --warn: #b45309;
+  --hover: #eef1f5;
+  --active: #e3ecfd;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 10px 28px rgba(0, 0, 0, .08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(:root) {
+    --bg: #101216;
+    --panel: #171a20;
+    --text: #e7e9ee;
+    --muted: #98a2b3;
+    --border: #262b34;
+    --accent: #6ea8fe;
+    --accent-contrast: #0b1220;
+    --accent-ink: #6ea8fe;
+    --danger: #fb923c;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --hover: #1e232c;
+    --active: #1d2a45;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px rgba(0, 0, 0, .5);
+  }
+}
+
+/* ---------- Baustein (neu im Paket): Wurzel, Fusszeile, Umschalter ohne Stil des Gastgebers ---------- */
+.nn-editor { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; min-width: 0; }
+.nn-foot { display: flex; gap: 12px; font-size: 12px; color: var(--muted); min-height: 1em; }
+.nn-foot:empty { display: none; }
+.nn-hint { margin-left: auto; }
+.nn-plugin-tools:empty { display: none; }
+.nn-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.nn-editor.readonly .body { opacity: .7; }
+/* Darstellung ohne .segmented des Gastgebers (Spezifität null: NoNotes .segmented gewinnt) */
+:where(.nn-modes) { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
+:where(.nn-modes) button { border: 0; border-radius: 0; background: transparent; padding: 3px 9px; font-size: 12px; color: var(--muted); }
+:where(.nn-modes) button[aria-selected="true"] { background: var(--panel); color: var(--text); font-weight: 600; }
+:where(.nn-editor textarea.body) { font-family: inherit; color: inherit; border: 1px solid var(--border); border-radius: 8px; }
+
+/* ---------- Aus NoNotes app.css (v3.3.0) ---------- */
+.body { width: 100%; min-width: 0; }
+.body {
+  flex: 1;
+  resize: none;
+  font-size: 16px;
+  line-height: 1.65;
+  background: var(--panel);
+  min-height: 200px;
+  padding: 14px 16px;
+}
+.editor-tools { display: flex; align-items: center; gap: 4px; }
+.editor-tools button { padding: 4px 10px; font-size: 13px; font-weight: 600; }
+.md-a p { margin: 0; }
+.md-a p + p { margin-top: .4em; }
+.md-a ul, .md-a ol { margin: .2em 0; padding-left: 1.4em; }
+.md-a > :first-child { margin-top: 0; }
+.md-a > :last-child { margin-bottom: 0; }
+/* Editor-Modi */
+.editor-tools .segmented { margin-left: 8px; }
+.editor-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr; gap: 12px; position: relative; }
+.editor-body .body { height: 100%; }
+/* Notiz mit Tabelle mit Rahmen: Festbreitenschrift, damit + und | untereinander stehen (v3.3.0); gilt auch für den Spiegel */
+.editor-body.grid-font .body { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: 14px; }
+/* Unsichtbarer Spiegel des Textes mit denselben Schriftmassen: misst die Pixelhöhe jeder Quellzeile. */
+.nn-editor .editor-body .body-mirror {
+  display: block; position: absolute; top: 0; left: 0; z-index: -1;
+  height: auto; min-height: 0; max-height: none; overflow: hidden;
+  visibility: hidden; pointer-events: none; box-sizing: border-box; border: 0;
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+}
+.preview { position: relative; }
+.preview { overflow: auto; min-height: 200px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); line-height: 1.65; font-size: 16px; }
+.nn-editor.mode-edit .preview { display: none; }
+.nn-editor.mode-preview .body { display: none; }
+.nn-editor.mode-split .editor-body { grid-template-columns: 1fr 1fr; }
+/* Markdown-Darstellung */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { line-height: 1.3; margin: 1.1em 0 .4em; }
+.md h1 { font-size: 1.6em; } .md h2 { font-size: 1.35em; } .md h3 { font-size: 1.15em; } .md h4, .md h5, .md h6 { font-size: 1em; }
+.md p { margin: .5em 0; }
+/* Tabellen (v2.10.0): die Titelzeile bleibt beim Scrollen der Vorschau oben; Titelzeile und -spalte grau oder in der Hauptfarbe */
+.md table.md-table { border-collapse: separate; border-spacing: 0; margin: .7em 0; max-width: 100%; font-size: .95em; line-height: 1.45; border: 1px solid var(--border); border-radius: 6px; }
+.md-table th, .md-table td { padding: 5px 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.md-table tr > :last-child { border-right: 0; }
+.md-table tbody tr:last-child > * { border-bottom: 0; }
+.md-table th { font-weight: 600; background: var(--hover); }
+.md-table thead th { position: sticky; top: 0; z-index: 1; }
+.preview .md-table thead th { top: -14px; } /* bündig mit dem oberen Rand, nicht mit dem Innenabstand der Vorschau */
+.md-table thead th:first-child { border-top-left-radius: 6px; }
+.md-table thead th:last-child { border-top-right-radius: 6px; }
+.md-table.md-table-mark th { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+/* Einfügen: Raster bis 8 × 10, Ziehen oder Zeigen wählt die Grösse */
+.table-picker { position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 10px; display: flex; flex-direction: column; gap: 8px; user-select: none; }
+.table-picker[hidden] { display: none; }
+.tp-grid { display: grid; grid-template-columns: repeat(8, 20px); gap: 3px; outline: none; touch-action: none; }
+.tp-grid:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.tp-cell { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); }
+.tp-cell.on { background: color-mix(in srgb, var(--accent) 30%, var(--panel)); border-color: var(--accent); }
+.tp-cell.on.head { background: color-mix(in srgb, var(--accent) 55%, var(--panel)); }
+.tp-size { font-size: 13px; color: var(--muted); text-align: center; min-height: 1.2em; }
+.tp-opts { display: flex; gap: 12px; font-size: 13px; }
+.tp-opts label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.md ul, .md ol { margin: .4em 0; padding-left: 1.5em; }
+.md li.task { list-style: none; margin-left: -1.3em; }
+.md li.task input { margin-right: 6px; vertical-align: middle; }
+.md blockquote { margin: .6em 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+.md code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: .9em; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+.md pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow: auto; }
+.md pre code { border: 0; padding: 0; background: none; }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
+.md img { max-width: 100%; border-radius: 8px; }
+.md a { color: var(--accent-ink); }
+.md a.md-wiki { text-decoration: none; border-bottom: 1px dashed var(--accent-ink); }
+.md a.md-wiki.missing { color: var(--muted); border-bottom-color: var(--muted); }
+.md a.md-wiki-cross::before { content: "⇢ "; opacity: .7; }
+.md a.md-note { text-decoration: none; border-bottom: 1px solid var(--accent-ink); }
+.md a.md-note::before { content: "↗ "; opacity: .7; }
+.md a.md-note.missing { color: var(--muted); border-bottom-color: var(--muted); text-decoration: line-through; }
+.md a.md-wiki.missing::after { content: " +"; opacity: .7; }
+/* Pfade auf Dateien und Ordner (v2.12.0): Symbol vor dem Text, gepunktet unterstrichen, lange Pfade brechen um */
+a.md-path { text-decoration: none; border-bottom: 1px dotted currentColor; overflow-wrap: anywhere; }
+.md-path-icon { display: inline-block; width: 1em; height: 1em; margin-right: .25em; vertical-align: -.14em; background: currentColor;
+  -webkit-mask: var(--md-path-icon) center / contain no-repeat; mask: var(--md-path-icon) center / contain no-repeat; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.md-path-file .md-path-icon { --md-path-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 1.5h6l3 3v10h-9z M9.5 1.5v3h3' fill='none' stroke='black' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.md-path-folder .md-path-icon { --md-path-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 3h4.2l1.6 1.7h7.2v8.8h-13z' fill='none' stroke='black' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.md-q { display: flex; gap: 10px; align-items: flex-start; margin: .6em 0; padding: 8px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+.md-q > .md-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; background: var(--warn); color: #fff; }
+.md-q.md-decision > .md-mark { background: var(--accent); color: var(--accent-contrast); font-size: 10px; letter-spacing: -1px; }
+.md-q.answered > .md-mark { background: var(--ok); color: #fff; letter-spacing: 0; font-size: 13px; }
+.md-decided { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+/* Personen (@kürzel) in Fragen und Entscheiden */
+.md-person { display: inline-block; padding: 0 7px; border-radius: 999px; background: var(--hover); border: 1px solid var(--border); color: var(--accent-ink); font-size: .85em; font-weight: 600; line-height: 1.6; white-space: nowrap; }
+.md-person.optional { border-style: dashed; font-weight: 500; color: var(--muted); }
+.md-person.inherited { opacity: .6; font-weight: 500; } /* über die Hauptaufgabe (v2.11.0) */
+/* Aufgaben, Fragen und Entscheide in Tabellenfeldern (v2.11.0) */
+.md-cell-task input { margin: 0 6px 0 0; vertical-align: middle; }
+.md-cell-task input:not(:disabled) { cursor: pointer; accent-color: var(--accent); }
+.md-cell-task.done > .task-text { color: var(--muted); text-decoration: line-through; }
+.md-cell-q .md-mark { display: inline-block; min-width: 1.4em; font-weight: 700; color: var(--warn); }
+.md-cell-q.md-decision .md-mark { color: var(--accent-ink); }
+.md-cell-q.answered .md-mark { color: var(--ok); }
+.md-cell-q { font-weight: 600; }
+.md-cell-a { display: inline-block; margin-left: 1.4em; color: var(--text); }
+.md-cell-task .md-due, .md-cell-q .md-due { margin-left: 6px; }
+/* Vorschläge für @kürzel im Editor */
+.mention-popup { position: absolute; z-index: 20; min-width: 180px; max-width: 280px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .15); padding: 4px; display: flex; flex-direction: column; }
+.mention-popup[hidden] { display: none; }
+/* Ausfüllbare Platzhalter (v2.12.0): offen gelb, ausgefüllt fein unterstrichen; Kasten mit der Beschreibung unter der Zeile */
+.md-ph { border-bottom: 1px dotted var(--muted); cursor: text; }
+.md-ph.open { background: #fff3b0; color: #5c4400; border: 1px dashed #c9a200; border-radius: 4px; padding: 0 4px; font-size: .95em; }
+@media (prefers-color-scheme: dark) { .md-ph.open { background: #4a3d0a; color: #ffe9a3; border-color: #a88a1c; } }
+.ph-hint { position: absolute; z-index: 21; max-width: min(420px, 90%); background: var(--panel); border: 1px solid var(--accent); border-left-width: 4px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .15); padding: 8px 12px; font-size: 13px; }
+.ph-hint[hidden] { display: none; }
+/* Datumsauswahl (v3.0.0): kleiner Monatskalender unter der Zeile; der hervorgehobene Bereich ist der, den Enter einsetzt (Tab wechselt) */
+.dp { position: absolute; z-index: 22; width: 258px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 20px rgba(0, 0, 0, .18); padding: 8px; font-size: 13px; }
+.dp[hidden] { display: none; }
+.dp-quick { display: flex; gap: 4px; margin-bottom: 6px; }
+.dp-quick button { flex: 1; padding: 3px 4px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; white-space: nowrap; }
+.dp-quick button.active, .dp-quick button:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.dp-month { font-weight: 600; }
+.dp-nav { border: 0; background: none; color: var(--text); font-size: 16px; line-height: 1; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
+.dp-nav:hover { background: var(--hover); }
+.dp-grid { width: 100%; border-collapse: collapse; border-radius: 6px; outline: 2px solid transparent; outline-offset: 1px; }
+.dp-grid.active { outline-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.dp-grid th { font-size: 11px; font-weight: 500; color: var(--muted); padding: 2px 0; text-align: center; }
+.dp-grid td { padding: 1px; text-align: center; }
+.dp-grid button { width: 30px; height: 26px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text); font-size: 12px; cursor: pointer; }
+.dp-grid button.other { color: var(--muted); opacity: .6; }
+.dp-grid button.today { border-color: var(--border); font-weight: 700; }
+.dp-grid button:hover { background: var(--hover); }
+.dp-grid button.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 600; }
+.dp-time { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 2px 4px; border-radius: 6px; }
+.dp-time.active { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.dp-time input { width: 70px; padding: 2px 6px; font-size: 13px; }
+.dp-keys { margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.ph-hint .ph-hint-name { font-weight: 600; margin-bottom: 4px; }
+.ph-hint .md p { margin: .2em 0; }
+.ph-hint .ph-hint-keys { margin-top: 6px; color: var(--muted); font-size: 12px; }
+.mention-popup button { border: 0; background: none; text-align: left; padding: 6px 10px; border-radius: 6px; display: flex; gap: 8px; align-items: baseline; color: var(--text); }
+.mention-popup button[aria-selected="true"], .mention-popup button:hover { background: var(--hover); }
+.mention-handle { font-weight: 600; }
+.mention-name { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+/* Vorschläge für Verweise [[ im Editor (v2.9.0): Anzahl oben, zehn Einträge sichtbar, darunter blättern */
+.wiki-popup { min-width: 240px; max-width: 420px; padding: 0; }
+.wiki-count { padding: 6px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.wiki-list { display: flex; flex-direction: column; padding: 4px; max-height: calc(10 * 32px + 8px); overflow-y: auto; }
+.wiki-list:empty { display: none; }
+.wiki-list button { flex: none; height: 32px; padding-top: 0; padding-bottom: 0; align-items: center; }
+.wiki-list button:hover { background: var(--hover); }
+.wiki-list button[aria-selected="true"] { background: var(--active); box-shadow: inset 3px 0 0 var(--accent); }
+.wiki-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; max-width: 100%; }
+.wiki-parent, .wiki-path, .wiki-tag { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wiki-path { display: none; }
+.wiki-popup.with-path .wiki-path { display: inline; }
+.wiki-popup.with-path .wiki-parent { display: none; }
+.wiki-list button.archived .wiki-title { opacity: .6; }
+.wiki-tag { font-style: italic; margin-left: auto; }
+.md-q-body { flex: 1; min-width: 0; }
+.md-q-text { font-weight: 600; }
+.md-a { margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--ok); background: var(--panel); border-radius: 0 6px 6px 0; }
+.md-a-lone { margin: .4em 0; }
+.md-q-details { margin-top: 4px; }
+.md-q-details > :first-child { margin-top: 0; }
+.md-q-details > :last-child { margin-bottom: 0; }
+.md-q-details .md-q { background: var(--panel); margin: .5em 0; }
+.md li.q-li { list-style: none; }
+.md li.q-li > .md-q { margin: .3em 0 .3em -1.2em; }
+.md li > .md-q { margin: .3em 0; }
+.attachments { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 2px; }
+.attachment { display: flex; flex-direction: column; gap: 4px; width: 120px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); font-size: 11px; color: var(--muted); }
+.attachment img { width: 100%; height: 72px; object-fit: cover; border-radius: 5px; background: var(--bg); cursor: pointer; }
+.attachment .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.attachment .row { display: flex; gap: 4px; }
+.attachment .row button { flex: 1; padding: 2px 4px; font-size: 11px; }
+.body.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.md img.md-att { max-height: 480px; }
+.md-missing { color: var(--danger); font-size: .9em; }
+.editor-tools { flex-wrap: wrap; row-gap: 6px; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+.toolbar button {
+  width: 30px; height: 28px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-color: transparent; background: transparent; color: var(--text);
+}
+.toolbar button:hover { background: var(--hover); }
+.toolbar button:disabled { opacity: .4; }
+.toolbar svg { width: 16px; height: 16px; fill: currentColor; }
+.tb-glyph { font-size: 13px; font-weight: 700; line-height: 1; }
+.tb-mono { font-family: ui-monospace, SFMono-Regular, Consolas, Menlo, monospace; font-size: 11px; letter-spacing: -.5px; }
+.tb-strike { text-decoration: line-through; font-size: 14px; }
+.tb-quote { font-size: 20px; font-family: Georgia, serif; line-height: 0; position: relative; top: 4px; }
+.tb-q { color: var(--warn); font-size: 15px; }
+.tb-a { color: var(--ok); font-size: 15px; }
+.tb-d { color: var(--accent-ink); font-size: 13px; letter-spacing: -1px; }
+.tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+.tb-select { padding: 3px 6px; font-size: 12px; height: 28px; border-radius: 6px; max-width: 130px; }
+.help-btn {
+  width: 28px; height: 28px; padding: 0; border-radius: 50%;
+  font-weight: 700; color: var(--accent-ink); border-color: var(--border); background: var(--panel);
+}
+.due { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.due.overdue { background: color-mix(in srgb, var(--danger) 15%, var(--panel)); border-color: var(--danger); color: var(--danger); font-weight: 600; }
+.due.today { background: color-mix(in srgb, var(--warn) 18%, var(--panel)); border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.due.week { border-color: var(--accent-ink); color: var(--accent-ink); }
+.md-progress { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.md-progress.complete { border-color: var(--ok); color: var(--ok); }
+.md-progress.warn { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.md-progress { margin-left: 8px; font-weight: 500; vertical-align: middle; }
+.md li.task input:not(:disabled) { cursor: pointer; accent-color: var(--accent); }
+.md li.task.done > .task-text { color: var(--muted); text-decoration: line-through; }
+.md-due { margin-left: 8px; font-weight: 500; vertical-align: middle; }
+.due.md-reminder, .due.reminder { font-size: 11px; padding: 1px 7px 1px 5px; margin-right: -4px; }
+.due.md-reminder::before, .due.reminder::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 3px; vertical-align: -1px; background: currentColor;
+  -webkit-mask: var(--bell-icon) center / contain no-repeat; mask: var(--bell-icon) center / contain no-repeat; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+:root { --bell-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.8a4 4 0 0 0-4 4v3.1L2.6 11.4h10.8L12 8.9V5.8a4 4 0 0 0-4-4z M6.4 13a1.7 1.7 0 0 0 3.2 0' fill='none' stroke='black' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.due.past { opacity: .55; }
+.preview [data-date] { cursor: pointer; }
+.md-embed { margin: 12px 0; }
+.md-embed-card { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.md-embed-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: var(--accent-contrast); flex: 0 0 auto; }
+.md-embed-text { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.md-embed-text small { color: var(--muted); }
+.md-embed-open { font-size: .9em; }
+.md-embed-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: var(--radius); background: #000; }
+.md-video-link { white-space: nowrap; }
+@media print { .md-embed { display: none; } }

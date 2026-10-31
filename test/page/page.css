@@ -1,0 +1,5 @@
+/* Nur für die Testseite: ein Gastgeber mit fester Höhe. */
+html, body { height: 100%; margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.host { display: flex; flex-direction: column; height: 100%; padding: 16px; }
