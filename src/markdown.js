@@ -147,6 +147,23 @@
       `${nl.missing ? ` title="${escapeHtml(t('Diese Notiz gibt es nicht (mehr).'))}"` : ''}>${label}</a>`;
   }
 
+  /* Ziele von [[Verweisen]] (ctx.resolveRef → { id, label }, seit v1.1.0 wahlweise auch href, title, className, data): die Adresse geht
+     durch safeUrl (sonst «#»), Klassen nur als Wörter aus Buchstaben, Ziffern, - und _, data als data-*-Attribute (Namen in camelCase
+     oder mit Bindestrich; data-title und data-note-id bleiben dem Renderer). */
+  const refHref = ref => (ref.href ? safeUrl(ref.href) || '#' : '#');
+  const refClasses = ref => String(ref.className || '').split(/\s+/).filter(c => /^[A-Za-z_][\w-]*$/.test(c)).map(c => ' ' + c).join('');
+  function refData(ref) {
+    if (!ref.data || typeof ref.data !== 'object') return '';
+    let out = '';
+    for (const [k, v] of Object.entries(ref.data)) {
+      if (v == null || v === false) continue;
+      const name = String(k).replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+      if (!/^[a-z][a-z0-9-]*$/.test(name) || name === 'title' || name === 'note-id') continue;
+      out += ` data-${name}="${escapeHtml(v === true ? '' : v)}"`;
+    }
+    return out;
+  }
+
   function renderInline(src, ctx) {
     const text = ctx.text;
     let out = '';
@@ -231,9 +248,10 @@
           const raw = src.slice(i + 2, close).trim();
           const cross = raw.endsWith('*');
           const target = (cross ? raw.slice(0, -1) : raw).trim();
-          const ref = ctx.resolveRef ? ctx.resolveRef(target) : { id: ctx.resolveTitle ? ctx.resolveTitle(target) : null, label: target };
-          const id = ref.id, title = ref.label;
-          out += `<a href="#" class="md-wiki${cross ? ' md-wiki-cross' : ''}${id == null ? ' missing' : ''}" data-title="${escapeHtml(title)}"${id != null ? ` data-note-id="${id}"` : ''}>${text(title)}</a>`;
+          const ref = (ctx.resolveRef ? ctx.resolveRef(target) : null) || { id: ctx.resolveTitle ? ctx.resolveTitle(target) : null, label: target };
+          const id = ref.id, title = ref.label != null ? ref.label : target;
+          out += `<a href="${escapeHtml(refHref(ref))}" class="md-wiki${cross ? ' md-wiki-cross' : ''}${id == null ? ' missing' : ''}${refClasses(ref)}" data-title="${escapeHtml(title)}"` +
+            `${id != null ? ` data-note-id="${escapeHtml(id)}"` : ''}${refData(ref)}${ref.title ? ` title="${escapeHtml(ref.title)}"` : ''}>${text(title)}</a>`;
           i = close + 2;
           continue;
         }

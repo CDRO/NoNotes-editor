@@ -1,6 +1,6 @@
 {
   "name": "nonotes-editor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Markdown-Engine und Editor aus NoNotes: reine Browser-Skripte (je ein globaler Name), ohne Bündler und ohne Abhängigkeiten zur Laufzeit. Der Gastgeber kopiert die Dateien in seinen Build.",
   "license": "MIT",
   "author": "CDRO",
@@ -14,7 +14,8 @@
     "docs/",
     "files.cjs",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "main": "files.cjs",
   "scripts": {

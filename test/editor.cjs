@@ -53,6 +53,7 @@ async function runBasics(browser, part) {
   assert.ok(await page.$eval('#body', b => getComputedStyle(b).display === 'none'));
   await page.keyboard.press('Control+e');
   assert.deepEqual(await page.evaluate(() => window.log.modes), ['split', 'edit', 'split', 'preview', 'edit'], 'onMode für den Gastgeber');
+  assert.deepEqual(await page.evaluate(() => window.log.remember), [false, true, true, true, true], 'onMode: remember nur, wenn die Person wählt');
   await page.keyboard.press('F1');
   assert.equal(await page.evaluate(() => window.log.help), 1, 'F1 ruft die Hilfe des Gastgebers');
   part('Darstellungen: Knöpfe und Ctrl+E (Bearbeiten → Geteilt → Vorschau), F1');
@@ -258,6 +259,107 @@ async function runHostField(browser, part) {
   await page.close();
 }
 
+/* v1.1.0, Wünsche von SteeringBoard: afterRender und Verweisziele mit Adresse (E1), onMode mit remember (E2), storagePrefix (E3),
+   übersetzte Platzhalterwörter der Toolleiste (E4), readOnlyTools: 'hide' (E5). */
+async function runV11(browser, part) {
+  const page = await open(browser);
+  const r = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    window.log3 = { after: [], opened: [] };
+    window.ed3 = NoNotesEditor.create(host, {
+      remember: false, mode: 'preview', value: '[[V-001]] und [[X-9]]',
+      refs: {
+        resolver: async () => target => (target === 'V-001'
+          ? { id: 'V-001', label: 'V-001 Budget', href: '#item/3', title: 'V-001 Budget', className: 'sb-ref', data: { code: 'V-001' } }
+          : { id: null, label: target, title: `Kein Eintrag «${target}»` }),
+        open: x => window.log3.opened.push(x.id),
+      },
+      afterRender: (preview, ed) => window.log3.after.push([preview === ed.preview, preview.querySelectorAll('a.md-wiki').length]),
+    });
+    await window.ed3.renderPreview();
+    const a = window.ed3.preview.querySelector('a.md-wiki');
+    const b = window.ed3.preview.querySelector('a.md-wiki.missing');
+    return { href: a.getAttribute('href'), cls: a.className, code: a.dataset.code, title: a.title, missing: b.title, after: window.log3.after.slice(-1)[0] };
+  });
+  assert.deepEqual(r, { href: '#item/3', cls: 'md-wiki sb-ref', code: 'V-001', title: 'V-001 Budget', missing: 'Kein Eintrag «X-9»', after: [true, 2] });
+  const before = await page.evaluate(() => location.href);
+  await page.click('.nn-editor:last-of-type a.sb-ref');
+  assert.equal(await page.evaluate(() => location.href), before, 'ein einfacher Klick folgt der Adresse nicht');
+  assert.deepEqual(await page.evaluate(() => window.log3.opened), ['V-001'], 'sondern ruft refs.open');
+  const n = await page.evaluate(async () => { window.ed3.set('[[V-001]]'); await window.ed3.renderPreview(); return window.log3.after.length; });
+  assert.ok(n >= 2, 'afterRender nach jedem Zeichnen');
+  part('E1: afterRender(preview, ed), Verweisziele mit href, title, className, data');
+
+  await page.evaluate(() => window.ed.mode('preview'));
+  await page.evaluate(() => window.ed.insert('Liebe {{?Name}}'));
+  assert.equal(await page.evaluate(() => window.ed.mode()), 'split', 'Platzhalter: der Editor schaltet selbst um');
+  assert.deepEqual(await page.evaluate(() => window.log.remember.slice(-2)), [true, false], 'ed.mode(name) zählt als Wahl, das Umschalten des Editors nicht');
+  await page.keyboard.press('Escape');
+  part('E2: onMode(mode, ed, { remember })');
+
+  const keys = await page.evaluate(() => {
+    const out = { before: [NoNotesEditor.MODE_KEY, NoNotesEditor.storageKey('tableGrid')] };
+    NoNotesEditor.configure({ storagePrefix: 'testapp' });
+    out.after = [NoNotesEditor.MODE_KEY, NoNotesEditor.GRID_KEY];
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const ed4 = NoNotesEditor.create(host, { kind: 'probe', mode: 'edit' });
+    ed4.el.querySelector('.nn-modes [data-mode="preview"]').click();
+    ed4.runCommand('table');
+    const box = ed4.el.querySelector('.tp-grid-kind');
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    out.stored = [JSON.parse(localStorage.getItem('testapp.mode')), localStorage.getItem('testapp.tableGrid'), localStorage.getItem('nonotes-editor.mode')];
+    ed4.destroy();
+    NoNotesEditor.configure({ storagePrefix: null });
+    out.reset = NoNotesEditor.MODE_KEY;
+    localStorage.removeItem('testapp.mode');
+    localStorage.removeItem('testapp.tableGrid');
+    return out;
+  });
+  assert.deepEqual(keys, {
+    before: ['nonotes-editor.mode', 'nonotes-editor.tableGrid'], after: ['testapp.mode', 'testapp.tableGrid'],
+    stored: [{ probe: 'preview' }, '0', null], reset: 'nonotes-editor.mode',
+  });
+  part('E3: configure({ storagePrefix }) für Darstellung und «Mit Rahmen», storageKey(), MODE_KEY folgt');
+
+  const words = [];
+  for (const cmd of ['bold', 'italic', 'strike', 'code']) {
+    await setText(page, 'ab', 1);
+    await page.click(`#mdToolbar [data-cmd="${cmd}"]`);
+    words.push(await text(page));
+  }
+  assert.deepEqual(words, ['a**fett**b', 'a*kursiv*b', 'a~~durchgestrichen~~b', 'a`code`b'], 'Deutsch wie bis v1.0.0');
+  part('E4: Platzhalterwörter auf Deutsch unverändert');
+
+  const ro = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const PNG = new Uint8Array([137, 80, 78, 71]);
+    const ed5 = NoNotesEditor.create(host, {
+      remember: false, mode: 'edit', readOnly: true, readOnlyTools: 'hide',
+      attachments: { list: async () => [{ id: 1, name: 'a.png', mime: 'image/png', size: 4 }], get: async () => ({ mime: 'image/png', bytes: PNG }) },
+    });
+    await ed5.renderAttachments();
+    const shown = () => [getComputedStyle(ed5.toolbar).display !== 'none', getComputedStyle(ed5.el.querySelector('.attachments')).display !== 'none'];
+    const out = { locked: shown(), cls: ed5.el.classList.contains('nn-tools-hidden') };
+    ed5.setReadOnly(false);
+    out.open = shown();
+    ed5.setReadOnly(true);
+    await ed5.renderAttachments();
+    out.again = shown();
+    window.ed.setReadOnly(true);
+    out.plain = [getComputedStyle(window.ed.toolbar).display !== 'none', window.ed.toolbar.querySelector('button[data-cmd="bold"]').disabled];
+    window.ed.setReadOnly(false);
+    return out;
+  });
+  assert.deepEqual(ro, { locked: [false, false], cls: true, open: [true, true], again: [false, false], plain: [true, true] });
+  part('E5: readOnlyTools: \'hide\' verbirgt Toolleiste und Bilderleiste; ohne die Option nur gesperrt (wie bis v1.0.0)');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+}
+
 async function runLabels(browser, part) {
   const page = await open(browser, '?lang=en');
   assert.equal(await page.$eval('#mdToolbar [data-cmd="bold"]', b => b.getAttribute('aria-label')), 'Strong', 'Ersetzung des Gastgebers');
@@ -269,6 +371,15 @@ async function runLabels(browser, part) {
   await page.waitForSelector('.dp:not([hidden])');
   assert.equal(await page.$eval('.dp-quick button', b => b.textContent), 'Today');
   part('Englisch: Katalog des Pakets, Ersetzung einzelner Texte gewinnt, Mehrzahl, Datumsauswahl');
+  await page.keyboard.press('Escape');
+  const words = [];
+  for (const cmd of ['bold', 'italic', 'strike', 'code']) {
+    await setText(page, 'ab', 1);
+    await page.click(`#mdToolbar [data-cmd="${cmd}"]`);
+    words.push(await text(page));
+  }
+  assert.deepEqual(words, ['a**strong**b', 'a*italic*b', 'a~~strikethrough~~b', 'a`code`b'], 'Platzhalterwörter aus den Beschriftungen, auch mit Ersetzung');
+  part('Englisch: Platzhalterwörter der Toolleiste (E4, v1.1.0)');
   assert.deepEqual(page.errors, []);
   await page.close();
 }
@@ -278,5 +389,6 @@ suite('Editor-Test', [
   { name: 'Listen unter dem Cursor: @kürzel, [[Verweise]], Datumsauswahl, Tabellen, Platzhalter', run: runPopups },
   { name: 'Rückrufe des Gastgebers: Bilder, Erweiterungen, Schreibschutz, Konflikt', run: runHostHooks },
   { name: 'Für NoNotes v4.0.0: Feld vor dem Text bei Platzhaltern, Kennungen, refresh, selectLine, Hinweise mit Art', run: runHostField },
+  { name: 'v1.1.0: afterRender, Verweisziele, onMode mit remember, storagePrefix, Platzhalterwörter, readOnlyTools', run: runV11 },
   { name: 'Texte: Englisch mit Ersetzung durch den Gastgeber', run: runLabels },
 ], { browser: true });

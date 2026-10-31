@@ -972,6 +972,29 @@ async function runEditing(browser, part) {
   part('Vorschläge für @kürzel: mehrere Lieferanten, zusammengeführt, abmelden');
 }
 
+// ============================================================
+/* Verweise mit eigenen Zielen (v1.1.0): resolveRef darf neben { id, label } auch href, title, className und data liefern; ohne diese
+   Angaben bleibt die Ausgabe wie bis v1.0.0. */
+async function runRefTargets(browser, part) {
+  const s = load(); // eigener Kontext: dieselbe Sprache wie die anderen Abschnitte ist egal, hier zählt nur das Markup
+  const M = s.NoNotesMarkdown;
+  const old = M.render('[[Protokoll]] und [[Fehlt]]', { resolveRef: x => (x === 'Protokoll' ? { id: 7, label: 'Protokoll' } : { id: null, label: x }) });
+  assert.equal(old, '<p><a href="#" class="md-wiki" data-title="Protokoll" data-note-id="7">Protokoll</a> und ' +
+    '<a href="#" class="md-wiki missing" data-title="Fehlt">Fehlt</a></p>', 'ohne neue Angaben wie bis v1.0.0');
+  part('Ohne neue Angaben: gleiches Markup wie v1.0.0');
+
+  const html = M.render('[[V-001]] [[X-9]]', {
+    resolveRef: x => (x === 'V-001'
+      ? { id: 'V-001', label: 'V-001 Budget', href: '#/item/3', title: 'V-001 Budget "Q4"', className: 'sb-ref ok-1 bad"x', data: { code: 'V-001', itemType: 'item', noteId: 'x', title: 'x', 'on click': 'x', empty: null } }
+      : { id: null, label: x, title: 'Kein Eintrag «X-9»', href: 'javascript:alert(1)' }),
+  });
+  assert.equal(html, '<p><a href="#/item/3" class="md-wiki sb-ref ok-1" data-title="V-001 Budget" data-note-id="V-001" data-code="V-001" data-item-type="item"' +
+    ' title="V-001 Budget &quot;Q4&quot;">V-001 Budget</a> <a href="#" class="md-wiki missing" data-title="X-9" title="Kein Eintrag «X-9»">X-9</a></p>');
+  part('href (nur sichere Adressen), title, Klassen (nur Wörter), data-* (camelCase → mit Bindestrich, data-title und data-note-id geschützt)');
+  assert.equal(M.render('[[Ohne]]', { resolveRef: () => null }), '<p><a href="#" class="md-wiki missing" data-title="Ohne">Ohne</a></p>', 'kein Ziel: wie unbekannt');
+  part('Resolver ohne Ergebnis');
+}
+
 suite('Engine-Test', [
   { name: 'Texte: Katalog de/en, Übersetzer des Gastgebers, Ersetzungen gewinnen, Mehrzahl, ohne DOM', run: runLabels },
   { name: 'Toolleiste und Tasten (editing.js), Vorschläge für @kürzel (mentions.js)', run: runEditing },
@@ -983,4 +1006,5 @@ suite('Engine-Test', [
   { name: 'Pfade auf Dateien und Ordner: Netz, Laufwerk, file://, Kodierung, Kopieren, in der Zeile, Bilder, Einfügen aus dem Explorer', run: runPathsCore },
   { name: 'Ausfüllbare Platzhalter: Erkennen, Werte, Vorschau, Druck, Beschreibungen', run: runPlaceholdersCore },
   { name: 'Termine mit «>» (v3.0.0): Schreibweise, Frist und Erinnerungen, Umschreiben alter Texte', run: runDatesV3 },
+  { name: 'Verweise mit eigenen Zielen (v1.1.0): href, title, Klassen, data-*', run: runRefTargets },
 ]);

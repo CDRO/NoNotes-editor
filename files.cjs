@@ -2,7 +2,7 @@
    Für die Werkzeuge des Gastgebers (Node, CommonJS); im Browser wird diese Datei nicht gebraucht.
 
      const editor = require('nonotes-editor');      // oder require('nonotes-editor/files.cjs')
-     editor.version                                 '1.0.0'
+     editor.version                                 '1.1.0'
      editor.root                                    Ordner des Pakets (absolut)
      editor.scripts                                 [{ name: 'labels.js', file: '/…/src/labels.js', role: 'labels' | 'lang' | 'engine' | 'ui' }, …]
      editor.styles                                  [{ name: 'editor.css', file: '/…/src/editor.css' }]

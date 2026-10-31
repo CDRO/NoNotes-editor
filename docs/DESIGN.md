@@ -1,6 +1,6 @@
 # NoNotes-editor – Entwurf
 
-Stand v1.0.0 (2026-10-31). Herausgelöst aus NoNotes v3.3.0. Kurz und verbindlich für alle Gastgeber: NoNotes, SteeringBoard,
+Stand v1.1.0 (2026-10-31). Herausgelöst aus NoNotes v3.3.0; was v1.1.0 dazubringt, steht in 4a. Kurz und verbindlich für alle Gastgeber: NoNotes, SteeringBoard,
 NoNotes-SaaS und die Erweiterungen in NoNotes-plugins.
 
 ## 1. Ziele
@@ -74,13 +74,13 @@ Listen unter dem Cursor (Personen, Verweise, Platzhalter, Datumsauswahl, Tabelle
 
 | Option | Wofür | NoNotes | SteeringBoard |
 | --- | --- | --- | --- |
-| `value`, `updatedAt`, `readOnly`, `mode`, `kind`, `remember`, `onMode(mode, ed)` | Inhalt, Stand, Schreibschutz, Darstellung (`edit`/`split`/`preview`, unter `kind` gemerkt oder vom Gastgeber) | Notiz, `readOnly()` der Hülle, Archiv, Papierkorb; Darstellung unter `nonotes.editorMode` wie bisher | Feld eines Eintrags, `kind: 'long'/'short'` |
+| `value`, `updatedAt`, `readOnly`, `readOnlyTools`, `mode`, `kind`, `remember`, `onMode(mode, ed, { remember })` | Inhalt, Stand, Schreibschutz (Toolleiste gesperrt oder mit `readOnlyTools: 'hide'` verborgen), Darstellung (`edit`/`split`/`preview`, unter `kind` gemerkt oder vom Gastgeber; `remember`: von der Person gewählt) | Notiz, `readOnly()` der Hülle, Archiv, Papierkorb; Darstellung unter `nonotes.editorMode` wie bisher | Feld eines Eintrags, `kind: 'long'/'short'` |
 | `ids` | feste Kennungen (`body`, `preview`, `toolbar`, `heading`, `modeSwitch`, `help`, `attach`, `attachInput`, `attachments`, `mentionPopup`, `wikiPopup`, `wikiCount`, `wikiList`, `phHint`, `root`, `editorBody`, `mirror`, `tablePicker`, `questionBtn`, `answerBtn`, `decisionBtn`) | `#body`, `#preview`, `#mdToolbar`, `#modeSwitch`, `#attachBtn` … wie heute (Tests, CSS) | ohne |
 | `onInput(text, ed)` | nach jeder Änderung, sofort | eigenes Speichern mit Zusammenführen (`onEdit`/`saveNote`) | – |
 | `onChange(text, { baseUpdatedAt })`, `saveDelay`, `reload()`, `resolveConflict({ mine, theirs })` | Speichern durch das Paket: verzögert, Ctrl+S, beim Verlassen, `flush()`; `CONFLICT`/`NOTE_CONFLICT` → `reload` → Wahl `'reload'`/`'mine'` | – | Speichern des Felds, Dialog «Neu laden / Meine Fassung behalten» |
 | `attachments: { list, get, add, remove, maxBytes, maxEdge }` | Bilder `![Name](att:ID)`: Leiste, Einfügen, Ablegen, Zwischenablage, Verkleinern | `B.listAttachments`, `getAttachment` (`data`), `addAttachment`, `deleteAttachment` | Bilder des Eintrags (`bytes`) |
-| `refs: { list, resolver, open, cross }` | `[[…]]`: Vorschläge (`title`, `insert`, `parent`, `path`, `dup`, `archived`, `updated`), Auflösung für die Vorschau (`resolver(text)` → `resolveRef`), Klick | `getTree` + `NoNotesLinks.resolver(titleIndex)`, `openNote`, Querverweise | Codes `[[V-001]]` über `SteeringBoardRefs` |
-| `render(text, ed)` | weitere Angaben an `NoNotesMarkdown.render` (`highlight`, `noteLink` …) | Suchtreffer, Links auf Notizen (`noteLinkResolver`) | – |
+| `refs: { list, resolver, open, cross }` | `[[…]]`: Vorschläge (`title`, `insert`, `parent`, `path`, `dup`, `archived`, `updated`), Auflösung für die Vorschau (`resolver(text)` → `resolveRef` → `{ id, label, href?, title?, className?, data? }`), Klick | `getTree` + `NoNotesLinks.resolver(titleIndex)`, `openNote`, Querverweise | Codes `[[V-001]]` über `SteeringBoardRefs` |
+| `render(text, ed)`, `afterRender(preview, ed)` | weitere Angaben an `NoNotesMarkdown.render` (`highlight`, `noteLink` …); Nachbearbeitung nach jedem Zeichnen der Vorschau | Suchtreffer, Links auf Notizen (`noteLinkResolver`) | – |
 | `onLinkClick(a, event, ed)` | eigene Links in der Vorschau (true = erledigt) | `a.md-note` (`followNoteLink`) | Links auf Einträge |
 | `people` | `@kürzel` über `NoNotesMentions` (Lieferanten meldet der Gastgeber an); `false` schaltet ab; `{ keepTyped: true }`: der Gastgeber lässt das getippte Wort selbst weg, ein gleiches Kürzel von anderswo bleibt in der Liste | lokale Kürzel, `ctx.people.provide`, `{ keepTyped: true }` | Personen des Portfolios |
 | `placeholders: { keep(), field, onFill(name, value, keep, { field, data }), extraText() }` | ausfüllbare Platzhalter: Einstellung «behalten»; `field`: ein Eingabefeld vor dem Text, dessen offene Platzhalter zuerst drankommen (Tab/Enter in den Text, Umschalt+Tab zurück, gleiche Namen in beiden); `onFill` für gleiche Namen beim Gastgeber (vor dem Aufräumen der Beschreibungen), `data` aus `startPlaceholders` | `field: #title`, `onFill` füllt die Unternotizen einer Vorlage | Vorlagen der Felder |
@@ -99,8 +99,9 @@ Bilder eingefügt werden, sonst leer.
 
 Für die ganze Seite:
 
-- `NoNotesEditor.configure({ localFiles, embeds: 'ask' | 'off', t, tn, messages, language, locale })` – Pfade öffnen (lokal), Videos,
-  Texte (an `NoNotesEditorLabels.configure`).
+- `NoNotesEditor.configure({ localFiles, embeds: 'ask' | 'off', storagePrefix, t, tn, messages, language, locale })` – Pfade öffnen (lokal),
+  Videos, Präfix der Schlüssel im `localStorage` (siehe 4a), Texte (an `NoNotesEditorLabels.configure`).
+- `NoNotesEditor.storageKey(name)` (`'mode'`, `'tableGrid'`), `MODE_KEY`, `GRID_KEY` – die Schlüssel mit dem aktuellen Präfix.
 - `NoNotesEditor.extend({ toolbar(ed) → [{ plugin, label, title, run(ed) }], tableFormat(ed) → fn, tableMenu(target) → Einträge })` – die
   Brücke zur Erweiterungs-Schnittstelle des Gastgebers. In NoNotes bleiben `ctx.ui.addToolbarButton`, `ctx.tables.format`,
   `ctx.ui.addTableMenuItem` und `ctx.editor` unverändert; die App setzt sie über `extend` (bzw. `ed.textarea`, `ed.replaceSelection`) um.
@@ -108,6 +109,22 @@ Für die ganze Seite:
 
 Was der Baustein **nicht** macht: Titel, Tags, Speichern in eine Datenbank, Zusammenführen, Konfliktdialog, Verlaufsdialog, Vorlagen
 wählen, Hilfe, Menüs zeichnen. Er ruft dafür den Gastgeber.
+
+## 4a. Neu in v1.1.0 (Wünsche E1–E5 von SteeringBoard)
+
+Alles wahlweise; ohne die neuen Angaben verhält sich der Baustein wie v1.0.0 (gleiches Markup, gleiche Schlüssel, gleiche Texte auf Deutsch).
+
+| Nr. | Wunsch | Umsetzung |
+| --- | --- | --- |
+| E1 | Verweise ohne Nachbearbeitung | `afterRender(preview, ed)`: nach jedem Zeichnen der Vorschau (nach den Knöpfen «Beantworten», vor dem synchronen Scrollen; ein Fehler geht an `onError`). Dazu darf `resolveRef` (über `refs.resolver`) `{ id, label, href, title, className, data }` liefern: `href` geht durch die Prüfung der Adressen (sonst `#`), `title` wird das Attribut, `className` nur Wörter aus Buchstaben, Ziffern, `-`, `_`, `data` wird zu `data-*` (`itemType` → `data-item-type`; `data-title` und `data-note-id` bleiben dem Renderer). Ein Klick ruft wie bisher `refs.open`; mit Ctrl/Cmd/Umschalt öffnet ein Ziel mit eigener Adresse wie ein Link. |
+| E2 | Wahl der Person erkennen | `onMode(mode, ed, { remember })`: `remember` ist `true`, wenn die Person die Darstellung wählt (Umschalter, Pfeiltasten darauf, Ctrl+E) oder der Gastgeber `ed.mode(name)` ruft, `false` beim Aufbau und wenn der Editor selbst umschaltet (Platzhalter, Datum in der Vorschau). |
+| E3 | Eigene Schlüssel je App | `NoNotesEditor.configure({ storagePrefix: 'steeringboard' })`: `<prefix>.mode` und `<prefix>.tableGrid` statt `nonotes-editor.*`; `null` oder leer kehrt zur Vorgabe zurück. Der Baustein zieht keine Werte um; das macht der Gastgeber einmal selbst (`NoNotesEditor.storageKey('tableGrid')`). |
+| E4 | Platzhalterwörter übersetzen | Fett, Kursiv, Durchgestrichen und Code ohne Auswahl setzen die Beschriftung des Knopfs klein geschrieben ein (`t('Fett')` → «fett», *bold*, *gras* …, nach dem Gebietsschema der Texte). Keine neuen Schlüssel: die neun Sprachpakete von NoNotes und der Katalog des Pakets übersetzen die vier Beschriftungen schon; eine Ersetzung des Gastgebers (`messages: { en: { 'Fett': 'Strong' } }`) gilt für beide. |
+| E5 | Schreibschutz ohne Werkzeuge | `readOnlyTools: 'hide'` (Vorgabe `'disable'`): bei Schreibschutz sind Toolleiste (mit Vorlagen und Knöpfen von Erweiterungen) und Bilderleiste verborgen (`hidden`, Klasse `nn-tools-hidden` an der Wurzel), sonst wie bisher nur gesperrt. Eine eigene Option statt `readOnly: { hideTools }`, weil `readOnly` den Anfangszustand nennt und `setReadOnly(b)` ihn wechselt; das Verbergen gilt für jeden Wechsel. |
+
+**Entscheid zu E4:** Eigene Schlüssel («fett», «kursiv» …) hätten jedem Gastgeber, der die Texte des Pakets mit seinem Sprachwerkzeug
+vollständig prüft (NoNotes und SteeringBoard: `i18n check --strict`), vier fehlende Texte je Sprachpaket gebracht – eine Änderung auf
+seiner Seite für ein Minor. Die Beschriftungen sind dieselben Wörter und überall übersetzt.
 
 ## 5. Texte und Ersetzungen
 
@@ -153,7 +170,7 @@ docs/     DESIGN.md
 Einbinden: als devDependency auf den Tag, ohne Registry:
 
 ```json
-"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.0.0" }
+"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.1.0" }
 ```
 
 Der Build des Gastgebers kopiert die Dateien wie seine eigenen (nichts wird übersetzt oder gebündelt). Zwei Wege:
@@ -173,7 +190,7 @@ unter `:where(:root)` und verlieren gegen jede Angabe des Gastgebers. Themes und
 `test/core.cjs`, die nur die Engine prüfen: Videos, mehrzeilige Einträge, Tabellen, Tabellen mit Rahmen, Personen und Tabellenfelder, Pfade,
 Platzhalter, Termine) + `test/editor.cjs` (Chromium per `file://` auf `test/page/index.html`: Aufbau, Darstellungen, Toolleiste, Tasten,
 Aufgaben in der Vorschau, Speichern und Konflikt, @kürzel, Verweise, Datumsauswahl, Tabellen, Platzhalter, Bilder, Erweiterungen,
-Schreibschutz, Englisch mit Ersetzung). Chromium: `NONOTES_EDITOR_CHROMIUM` (oder `STEERINGBOARD_CHROMIUM`) nennt ein vorhandenes
+Schreibschutz, Englisch mit Ersetzung; seit v1.1.0 die Wünsche E1–E5, die Engine prüft Verweisziele). Chromium: `NONOTES_EDITOR_CHROMIUM` (oder `STEERINGBOARD_CHROMIUM`) nennt ein vorhandenes
 Programm, sonst das von Playwright. Was Datenbank, Export, Agenten und die App braucht, testet weiter NoNotes – gegen das Paket.
 
 ## 8. Versionen und Tags
@@ -224,6 +241,16 @@ nächsten Zeile der Liste, Listen unter dem Cursor bleiben innerhalb des Editors
   `confirm`. `SteeringBoardMdField.extend` wird `NoNotesEditor.extend`. Klasse `.sb-md` → `.nn-editor` (CSS anpassen).
 - Texte: `NoNotesEditor.configure({ t, tn, language, messages })` mit den Wörtern von SteeringBoard («Eintrag» statt «Notiz» in den
   Vorschlägen für Verweise, englische Begriffe nach dem Glossar). Wunsch 11 in `docs/WUENSCHE-AN-DEN-KERN.md` ist mit NoNotes v4.0.0 erfüllt.
+
+### Mit v1.1.0 (wahlweise, kein Gastgeber muss etwas ändern)
+
+- **SteeringBoard** (`packages/ui/mdfield.js`): `refs.resolver` liefert `{ id: code, label, href, title, data: { code } }` (unbekannt:
+  `{ id: null, label, title }`), der MutationObserver und `decorateRefs` fallen weg (oder `afterRender`); `onMode: (m, ed, { remember }) =>
+  { if (remember) rememberMode(kind, m); }` statt der abgefangenen Klicks und Tasten; `NoNotesEditor.configure({ storagePrefix:
+  'steeringboard' })` und den Wert einmal von `nonotes-editor.tableGrid` nach `steeringboard.tableGrid` ziehen; `readOnlyTools: 'hide'`
+  statt `toolbar.hidden` und der Regel `.nn-editor.readonly .attachments` in `board.css`.
+- **NoNotes**: nichts nötig. Die Platzhalterwörter kommen aus den neun Sprachpaketen (Beschriftungen «Fett» …). Wahlweise
+  `onMode` mit `remember` statt eigener Erkennung, `storagePrefix: 'nonotes'` (dann `nonotes-editor.tableGrid` umziehen).
 
 ### NoNotes-SaaS
 
