@@ -8,7 +8,9 @@
    Benutzung:
      const ed = NoNotesEditor.create(host, {
        value, updatedAt, readOnly, mode: 'edit' | 'split' | 'preview', kind: 'note',   kind: unter diesem Namen merkt sich der Browser die Darstellung
-       remember: false, onMode(mode, ed),                                             nicht merken / der Gastgeber merkt sie selbst
+       remember: false, onMode(mode, ed, { remember }),                               nicht merken / der Gastgeber merkt sie selbst (remember: die
+                                                                                      Person hat gewählt, nicht der Editor selbst umgeschaltet)
+       readOnlyTools: 'disable' | 'hide',                                             Schreibschutz: Toolleiste und Bilderleiste gesperrt (Vorgabe) oder verborgen
        ids: { root, body, preview, toolbar, heading, modeSwitch, help, attach, attachInput, attachments, mentionPopup, wikiPopup, wikiCount,
               wikiList, phHint, editorBody, mirror, tablePicker, questionBtn, answerBtn, decisionBtn },                                                     feste Kennungen für die Elemente (Tests, CSS des Gastgebers)
        placeholder, label,                                                            Platzhalter und Beschriftung des Textfelds
@@ -16,9 +18,10 @@
        onChange(text, { baseUpdatedAt }) → Promise<{ updatedAt, text? }>              oder: das Paket speichert verzögert (saveDelay, Vorgabe 600 ms),
        reload() → Promise<{ text, updatedAt }>, resolveConflict({ mine, theirs }) → 'reload' | 'mine' | null      bei Fehler CONFLICT
        attachments: { list(), get(id) → { mime, bytes|data }, add({ name, mime, bytes }) → { id, name }, remove(id) },   Bilder (att:ID)
-       refs: { list() → [{ title, insert?, parent?, path?, archived?, updated?, dup? }], resolver(text) → fn(target) → { id, label },
+       refs: { list() → [{ title, insert?, parent?, path?, archived?, updated?, dup? }], resolver(text) → fn(target) → { id, label, href?, title?, className?, data? },
                open({ id, title, el, event }), cross: true },                         [[Verweise]]: Vorschläge, Auflösung, Klick
        render(text) → Promise<object>,                                                weitere Angaben für NoNotesMarkdown.render (highlight, noteLink …)
+       afterRender(preview, ed),                                                      nach jedem Zeichnen der Vorschau (Nachbearbeitung durch den Gastgeber)
        onLinkClick(a, event) → true,                                                  eigene Links (z. B. a.md-note) selbst behandeln
        people: true | { keepTyped },                                                  @kürzel-Vorschläge (NoNotesMentions); false: keine
        placeholders: { keep() → boolean, field, onFill(name, value, keep, { field, data }), extraText() },   ausfüllbare Platzhalter ({{?Name}});
@@ -33,8 +36,9 @@
          isDirty(), flush(), renderPreview(), renderAttachments(), addAttachments(files), forgetAttachment(id?), fillPlaceholders({ keep, data }),
          startPlaceholders({ start, end, keep, data }), updateTableMeta(line, fn), selectLine(lineIndex), refresh(), refreshExtensions(), isWritable(), closePopups(),
          destroy() }
-   NoNotesEditor.configure({ localFiles, embeds: 'ask' | 'off', t, tn, messages, language, locale }): Einstellungen der Seite; die Texte
-   gehen an NoNotesEditorLabels.configure (siehe labels.js).
+   NoNotesEditor.configure({ localFiles, embeds: 'ask' | 'off', storagePrefix, t, tn, messages, language, locale }): Einstellungen der Seite;
+   storagePrefix (Vorgabe 'nonotes-editor') für die Schlüssel im localStorage (<prefix>.mode, <prefix>.tableGrid; NoNotesEditor.storageKey(name));
+   die Texte gehen an NoNotesEditorLabels.configure (siehe labels.js).
    NoNotesEditor.extend({ toolbar(ed) → [{ plugin, label, title, run(ed) }], tableFormat(ed) → fn, tableMenu(target) → Einträge }):
    Rückrufe einer Erweiterungs-Schnittstelle (NoNotes ctx.ui.addToolbarButton, ctx.tables.format, ctx.ui.addTableMenuItem).
    NoNotesEditor.of(node), all(), focused(): der Editor um ein Element, alle auf der Seite, der zuletzt benutzte.
@@ -54,9 +58,11 @@
   const M = global.NoNotesMarkdown;
   const PH = global.NoNotesPlaceholders;
 
-  const VERSION = '1.0.0';
-  const MODE_KEY = 'nonotes-editor.mode';  // { [kind]: 'edit' | 'split' | 'preview' }
-  const GRID_KEY = 'nonotes-editor.tableGrid'; // «Mit Rahmen (mehrzeilige Felder)» im Raster: '1' | '0'
+  const VERSION = '1.1.0';
+  // Schlüssel im localStorage: <storagePrefix>.mode = { [kind]: 'edit' | 'split' | 'preview' }, <storagePrefix>.tableGrid = «Mit Rahmen
+  // (mehrzeilige Felder)» im Raster ('1' | '0'). Vorgabe nonotes-editor; configure({ storagePrefix }) trennt Apps im selben Browser.
+  const STORAGE_PREFIX = 'nonotes-editor';
+  const key = name => `${conf.storagePrefix}.${name}`;
   const MODES = [['edit', N_('Bearbeiten')], ['split', N_('Geteilt')], ['preview', N_('Vorschau')]];
   const SAVE_MS = 600;
   const PREVIEW_MS = 120;
@@ -72,9 +78,10 @@
   const ext = { toolbar: null, tableFormat: null, tableMenu: null };
 
   // Einstellungen der Seite: Pfade lassen sich öffnen (Seite aus einer Datei), Videos als Karte, die erst nach einem Klick lädt
-  const conf = { localFiles: typeof location !== 'undefined' && location.protocol === 'file:', embeds: 'ask' };
+  const conf = { localFiles: typeof location !== 'undefined' && location.protocol === 'file:', embeds: 'ask', storagePrefix: STORAGE_PREFIX };
   function configure(o) {
     if (!o) return;
+    if (o.storagePrefix !== undefined) conf.storagePrefix = typeof o.storagePrefix === 'string' && o.storagePrefix.trim() ? o.storagePrefix.trim() : STORAGE_PREFIX;
     if (typeof o.localFiles === 'boolean') conf.localFiles = o.localFiles;
     if (o.embeds === 'ask' || o.embeds === 'off') conf.embeds = o.embeds;
     if (M && M.configure) M.configure({ localFiles: conf.localFiles });
@@ -110,10 +117,10 @@
   }
 
   function readModes() {
-    try { const v = JSON.parse(global.localStorage.getItem(MODE_KEY) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
+    try { const v = JSON.parse(global.localStorage.getItem(key('mode')) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; }
   }
   function rememberMode(kind, mode) {
-    try { const all = readModes(); all[kind] = mode; global.localStorage.setItem(MODE_KEY, JSON.stringify(all)); } catch (e) { /* ohne Speicher: nicht gemerkt */ }
+    try { const all = readModes(); all[kind] = mode; global.localStorage.setItem(key('mode'), JSON.stringify(all)); } catch (e) { /* ohne Speicher: nicht gemerkt */ }
   }
 
   // ---------- Toolleiste (wie die feste Toolleiste in NoNotes index.html) ----------
@@ -248,6 +255,10 @@
   }
 
   const errorText = e => String(e && e.message ? e.message : e);
+  /** Platzhalterwort der Toolleiste aus der Beschriftung eines Knopfs: klein geschrieben nach dem Gebietsschema der Texte. */
+  function word(label) {
+    try { return String(label).toLocaleLowerCase(L.locale()); } catch (e) { return String(label).toLowerCase(); }
+  }
 
   // ============================================================
 
@@ -256,6 +267,7 @@
     const uid = ++seq;
     const kind = o.kind || 'default';
     const ids = o.ids || {};
+    const hideTools = o.readOnlyTools === 'hide'; // Schreibschutz: Toolleiste und Bilderleiste verborgen statt nur gesperrt
     const st = {
       mode: null, readOnly: !!o.readOnly, destroyed: false,
       base: o.updatedAt || null, sent: o.value || '', stored: o.value || '',
@@ -332,7 +344,7 @@
       root.classList.add('mode-' + mode);
       for (const b of modeSwitch.querySelectorAll('button[data-mode]')) b.setAttribute('aria-selected', String(b.dataset.mode === mode));
       if (remember && o.remember !== false) rememberMode(kind, mode);
-      if (o.onMode) o.onMode(mode, api);
+      if (o.onMode) o.onMode(mode, api, { remember: !!remember }); // remember: von der Person gewählt (oder ed.mode(name)), nicht vom Editor selbst
       // der Fokus bleibt im Editor: ein verborgenes Textfeld gibt ihn an die Vorschau ab und bekommt ihn zurück
       if (mode === 'preview' && document.activeElement === ta) preview.focus();
       else if (mode !== 'preview' && document.activeElement === preview) ta.focus();
@@ -375,6 +387,7 @@
       preview.innerHTML = M.render(text, opts); // nur die Ausgabe von NoNotesMarkdown
       for (const box of preview.querySelectorAll('.md-embed')) if (st.loadedEmbeds.has(box.dataset.embed)) loadEmbed(box, false);
       if (o.answers) addAnswerButtons();
+      if (o.afterRender) { try { o.afterRender(preview, api); } catch (e) { if (o.onError) o.onError(e); } }
       if (st.mode === 'split' && sync) sync.afterRender();
       root.dataset.previewSeq = String(mine);
       st.previewed = text;
@@ -510,10 +523,11 @@
       }
       let r = null;
       switch (cmd) {
-        case 'bold': r = E.wrap(text, s, e, '**', '**', 'fett'); break;
-        case 'italic': r = E.wrap(text, s, e, '*', '*', 'kursiv'); break;
-        case 'strike': r = E.wrap(text, s, e, '~~', '~~', 'durchgestrichen'); break;
-        case 'code': r = E.wrap(text, s, e, '`', '`', 'code'); break;
+        // ohne Auswahl ein Platzhalterwort: die Beschriftung des Knopfs klein geschrieben (fett, kursiv … ; bold, italic …)
+        case 'bold': r = E.wrap(text, s, e, '**', '**', word(t('Fett'))); break;
+        case 'italic': r = E.wrap(text, s, e, '*', '*', word(t('Kursiv'))); break;
+        case 'strike': r = E.wrap(text, s, e, '~~', '~~', word(t('Durchgestrichen'))); break;
+        case 'code': r = E.wrap(text, s, e, '`', '`', word(t('Code'))); break;
         case 'bullet': r = E.toggleList(text, s, e, 'bullet'); break;
         case 'ordered': r = E.toggleList(text, s, e, 'ordered'); break;
         case 'task': r = E.toggleList(text, s, e, 'task'); break;
@@ -941,10 +955,10 @@
       const head = check(t('Titelzeile'), true, 'tp-head');
       const headCol = check(t('Titelspalte'), false, 'tp-headcol');
       let gridOn = true;
-      try { gridOn = global.localStorage.getItem(GRID_KEY) !== '0'; } catch (e) { /* ohne Speicher: Vorgabe */ }
+      try { gridOn = global.localStorage.getItem(key('tableGrid')) !== '0'; } catch (e) { /* ohne Speicher: Vorgabe */ }
       const gridBox = check(t('Mit Rahmen (mehrzeilige Felder)'), gridOn, 'tp-grid-kind');
       gridBox.parentElement.title = t('Tabelle mit Rahmen aus «+---+»: Felder dürfen mehrere Zeilen haben und sich über mehrere Spalten ziehen. Ohne: einfache Tabelle wie bei GitHub');
-      gridBox.addEventListener('change', () => { try { global.localStorage.setItem(GRID_KEY, gridBox.checked ? '1' : '0'); } catch (e) { /* nicht gemerkt */ } });
+      gridBox.addEventListener('change', () => { try { global.localStorage.setItem(key('tableGrid'), gridBox.checked ? '1' : '0'); } catch (e) { /* nicht gemerkt */ } });
       const box = h('div', { className: 'table-picker', id: ids.tablePicker || null, hidden: true, role: 'dialog', 'aria-label': t('Tabelle einfügen') }, grid, size, opts);
       root.appendChild(box);
       const p = { box, grid, cols: 0, rows: 0, drag: false, sel: null, anchor: null };
@@ -1228,7 +1242,7 @@
       if (st.destroyed) return;
       if (st.mode !== 'edit' && urls.some(Boolean) && preview.querySelector('.md-missing')) renderPreview();
       strip.dataset.count = String(rows.length);
-      strip.hidden = rows.length === 0;
+      strip.hidden = rows.length === 0 || (hideTools && st.readOnly);
       strip.replaceChildren(...rows.map((a, i) => h('figure', { className: 'attachment', dataset: { id: String(a.id) } },
         h('img', { src: urls[i] || '', alt: a.name, title: t('In den Text einfügen'), on: { click: () => insertAttachmentRef(a) } }),
         h('div', { className: 'name', title: `${a.name} · ${Math.round((a.size || 0) / 1024)} KB` }, a.name),
@@ -1760,6 +1774,11 @@
       heading.disabled = st.readOnly;
       if (actionBar) actionBar.hidden = st.readOnly;
       root.classList.toggle('readonly', st.readOnly);
+      if (hideTools) {
+        toolbar.hidden = st.readOnly;
+        strip.hidden = st.readOnly || !Number(strip.dataset.count || 0);
+        root.classList.toggle('nn-tools-hidden', st.readOnly);
+      }
       if (st.readOnly) { closeMentionPopup(); closeWikiPopup(); closeDatePicker(); closeTablePicker(false); endPlaceholders(); }
       for (const x of strip.querySelectorAll('button')) x.disabled = st.readOnly;
       if (st.mode && st.mode !== 'edit') renderPreview(); // Kästchen und Antwortknöpfe folgen
@@ -1914,6 +1933,8 @@
         return;
       }
       if (a.classList.contains('md-wiki')) {
+        // ein Ziel mit eigener Adresse (refs.resolver → { href }) öffnet mit Ctrl/Cmd/Umschalt wie ein Link (neuer Tab, neues Fenster)
+        if ((e.ctrlKey || e.metaKey || e.shiftKey) && a.getAttribute('href') !== '#') return;
         e.preventDefault();
         if (o.refs && o.refs.open) o.refs.open({ id: a.dataset.noteId != null ? a.dataset.noteId : null, title: a.dataset.title || '', el: a, event: e });
       } else if (a.getAttribute('href') === '#') e.preventDefault();
@@ -2032,5 +2053,12 @@
     for (const x of all()) x.refreshExtensions();
   }
 
-  global.NoNotesEditor = { VERSION, MODE_KEY, MODES: MODES.map(([m]) => m), create, configure, of, all, focused, extend, h };
+  /** Der Schlüssel im localStorage für name ('mode', 'tableGrid') mit dem aktuellen Präfix (configure({ storagePrefix })). */
+  const storageKey = name => key(name);
+
+  global.NoNotesEditor = {
+    VERSION, MODES: MODES.map(([m]) => m), create, configure, of, all, focused, extend, h, storageKey,
+    get MODE_KEY() { return key('mode'); }, // mit dem aktuellen Präfix (Vorgabe nonotes-editor.mode, wie bis v1.0.0)
+    get GRID_KEY() { return key('tableGrid'); },
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

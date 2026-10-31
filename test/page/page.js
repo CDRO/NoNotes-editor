@@ -4,7 +4,7 @@
   'use strict';
 
   const params = new URLSearchParams(location.search);
-  const log = { modes: [], inputs: 0, saves: [], opened: [], menus: [], help: 0, filled: [], removed: [] };
+  const log = { modes: [], remember: [], inputs: 0, saves: [], opened: [], menus: [], help: 0, filled: [], removed: [] };
   window.log = log;
   if (params.get('lang') === 'en') {
     document.documentElement.lang = 'en';
@@ -30,7 +30,7 @@
     kind: 'test', remember: false, mode: 'split',
     ids: { body: 'body', preview: 'preview', toolbar: 'mdToolbar', modeSwitch: 'modeSwitch', help: 'helpBtn', attach: 'attachBtn', attachInput: 'attachInput', attachments: 'attachments' },
     onInput: () => { log.inputs++; },
-    onMode: mode => { log.modes.push(mode); },
+    onMode: (mode, ed, info) => { log.modes.push(mode); log.remember.push(info.remember); },
     onChange: async (text, info) => {
       if (failNext) { const code = failNext; failNext = null; throw Object.assign(new Error('Konflikt'), { code }); }
       log.saves.push({ text, base: info.baseUpdatedAt });

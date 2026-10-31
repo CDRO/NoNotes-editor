@@ -29,7 +29,7 @@ und seine Regeln aus `app.css`). Die Module sind verschoben, nicht neu geschrieb
 ## Einbinden
 
 ```json
-"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.0.0" }
+"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.1.0" }
 ```
 
 Der Build des Gastgebers kopiert die Dateien in sein Ergebnis, zum Beispiel:
@@ -56,13 +56,16 @@ In der Seite, in dieser Reihenfolge:
 ## Benutzen
 
 ```js
-NoNotesEditor.configure({ language: 'en', messages: { en: { 'Fett': 'Strong' } } });   // wahlweise, siehe docs/DESIGN.md §5
+NoNotesEditor.configure({ language: 'en', messages: { en: { 'Fett': 'Strong' } }, storagePrefix: 'meine-app' });   // wahlweise, siehe docs/DESIGN.md §4a, §5
 
 const ed = NoNotesEditor.create(document.getElementById('host'), {
   value: '# Hallo\n- [ ] Erste Aufgabe >31.12.2026',
   onChange: async (text, { baseUpdatedAt }) => save(text, baseUpdatedAt),   // → { updatedAt }
   attachments: { list, get, add, remove },                               // Bilder ![Name](att:ID)
   refs: { list: async () => [{ title: 'Protokoll' }], resolver: async () => target => ({ id: null, label: target }), open: x => {} },
+  // Ziele dürfen auch href, title, className und data liefern (v1.1.0); afterRender(preview, ed) nach jedem Zeichnen der Vorschau
+  onMode: (mode, ed, { remember }) => { if (remember) merken(mode); },     // remember: von der Person gewählt (v1.1.0)
+  readOnlyTools: 'hide',                                                  // Schreibschutz: Toolleiste und Bilderleiste verborgen (v1.1.0)
   showMenu: (items, x, y) => myMenu(items, x, y),
 });
 ed.get(); ed.set('Neu'); ed.mode('preview'); ed.insert('Liebe {{?Name}}'); await ed.flush();
@@ -84,6 +87,8 @@ Regeln wie in NoNotes: deutsche Texte (Schweiz, `ss`) nur über `t()`/`tn()`/`N_
 `innerHTML` mit Daten des Benutzers ausser der Ausgabe von `NoNotesMarkdown`; keine Inline-Skripte.
 
 ## Versionen
+
+Änderungen je Version: [CHANGELOG.md](CHANGELOG.md).
 
 Ein Release ist ein Tag: Actions → «Version taggen» mit `version` (z. B. `v1.0.0`, muss zu `package.json` passen). Kein GitHub-Release,
 keine Registry. Gastgeber zeigen in `devDependencies` auf den Tag.
