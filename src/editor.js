@@ -10,7 +10,7 @@
        value, updatedAt, readOnly, mode: 'edit' | 'split' | 'preview', kind: 'note',   kind: unter diesem Namen merkt sich der Browser die Darstellung
        remember: false, onMode(mode, ed),                                             nicht merken / der Gastgeber merkt sie selbst
        ids: { root, body, preview, toolbar, heading, modeSwitch, help, attach, attachInput, attachments, mentionPopup, wikiPopup, wikiCount,
-              wikiList, phHint },                                                     feste Kennungen für die Elemente (Tests, CSS des Gastgebers)
+              wikiList, phHint, editorBody, mirror, tablePicker, questionBtn, answerBtn, decisionBtn },                                                     feste Kennungen für die Elemente (Tests, CSS des Gastgebers)
        placeholder, label,                                                            Platzhalter und Beschriftung des Textfelds
        onInput(text, ed),                                                             nach jeder Änderung, sofort (der Gastgeber speichert selbst)
        onChange(text, { baseUpdatedAt }) → Promise<{ updatedAt, text? }>              oder: das Paket speichert verzögert (saveDelay, Vorgabe 600 ms),
@@ -20,8 +20,9 @@
                open({ id, title, el, event }), cross: true },                         [[Verweise]]: Vorschläge, Auflösung, Klick
        render(text) → Promise<object>,                                                weitere Angaben für NoNotesMarkdown.render (highlight, noteLink …)
        onLinkClick(a, event) → true,                                                  eigene Links (z. B. a.md-note) selbst behandeln
-       people: true,                                                                  @kürzel-Vorschläge (NoNotesMentions)
-       placeholders: { keep() → boolean, onFill(name, value, keep) },                 ausfüllbare Platzhalter ({{?Name}})
+       people: true | { keepTyped },                                                  @kürzel-Vorschläge (NoNotesMentions); false: keine
+       placeholders: { keep() → boolean, field, onFill(name, value, keep, { field, data }), extraText() },   ausfüllbare Platzhalter ({{?Name}});
+                                                                                      field: Eingabefeld davor (Titel), data: aus startPlaceholders
        history: { label, title, open(ed) }, help(ed), templates: { insert(ed), save(ed) },   Knöpfe des Gastgebers
        actions: [{ id, label, title, run(ed) }],                                      weitere Knöpfe neben der Toolleiste
        showMenu(items, x, y), confirm(text, { danger, yes }) → Promise<boolean>, hint(text), onError(e),
@@ -29,8 +30,9 @@
      })
      → { el, textarea, preview, get(), set(text, updatedAt), focus(), setReadOnly(b), isReadOnly(), mode(name?), insert(text, { keep }),
          insertAtCursor(text), selection(), replaceSelection(text), applyEdit({ text, selStart, selEnd }), runCommand(cmd), counts(),
-         isDirty(), flush(), renderPreview(), renderAttachments(), addAttachments(files), fillPlaceholders({ keep }), updateTableMeta(line, fn),
-         refreshExtensions(), isWritable(), destroy() }
+         isDirty(), flush(), renderPreview(), renderAttachments(), addAttachments(files), forgetAttachment(id?), fillPlaceholders({ keep, data }),
+         startPlaceholders({ start, end, keep, data }), updateTableMeta(line, fn), selectLine(lineIndex), refresh(), refreshExtensions(), isWritable(), closePopups(),
+         destroy() }
    NoNotesEditor.configure({ localFiles, embeds: 'ask' | 'off', t, tn, messages, language, locale }): Einstellungen der Seite; die Texte
    gehen an NoNotesEditorLabels.configure (siehe labels.js).
    NoNotesEditor.extend({ toolbar(ed) → [{ plugin, label, title, run(ed) }], tableFormat(ed) → fn, tableMenu(target) → Einträge }):
@@ -296,13 +298,13 @@
       o.actions.map(a => h('button', { type: 'button', className: 'small nn-action', id: a.id || null, title: a.title || null, 'data-write': true,
         on: { click: () => { if (!st.readOnly) a.run(api); } } }, a.label))) : null;
     const preview = h('div', { className: 'preview md', id: ids.preview || null, tabindex: 0, 'aria-label': t('Vorschau') });
-    const mirror = h('div', { className: 'body body-mirror', 'aria-hidden': 'true' });
+    const mirror = h('div', { className: 'body body-mirror', id: ids.mirror || null, 'aria-hidden': 'true' });
     const mentionPopup = h('div', { className: 'mention-popup', id: ids.mentionPopup || null, role: 'listbox', 'aria-label': t('Personen'), hidden: true });
     const wikiCount = h('div', { className: 'wiki-count', id: ids.wikiCount || null, 'aria-live': 'polite' });
     const wikiList = h('div', { className: 'wiki-list', id: ids.wikiList || null, role: 'listbox', 'aria-label': t('Notizen') });
     const wikiPopup = h('div', { className: 'mention-popup wiki-popup', id: ids.wikiPopup || null, hidden: true }, wikiCount, wikiList);
     const phHint = h('div', { className: 'ph-hint', id: ids.phHint || null, role: 'note', 'aria-live': 'polite', hidden: true });
-    const body = h('div', { className: 'editor-body' }, ta, preview, mirror, mentionPopup, phHint, wikiPopup);
+    const body = h('div', { className: 'editor-body', id: ids.editorBody || null }, ta, preview, mirror, mentionPopup, phHint, wikiPopup);
     const strip = h('div', { className: 'attachments', id: ids.attachments || null, 'aria-label': t('Anhänge'), hidden: true });
     const fileInput = h('input', { type: 'file', id: ids.attachInput || null, accept: 'image/*', multiple: true, hidden: true, className: 'nn-file' });
     const countsEl = o.counts ? h('span', { className: 'nn-counts' }) : null;
@@ -313,9 +315,10 @@
     host.append(root);
 
     const setState = s => { root.dataset.state = s; };
-    /** Hinweis: an den Gastgeber (Statuszeile), sonst in die Fusszeile des Editors. */
-    function hint(text) {
-      if (o.hint) { o.hint(text || ''); return; }
+    /** Hinweis: an den Gastgeber (Statuszeile; kind 'error' bei Fehlern, 'saving' während Bilder eingefügt werden), sonst in die
+     *  Fusszeile des Editors. */
+    function hint(text, kind) {
+      if (o.hint) { o.hint(text || '', kind || ''); return; }
       hintEl.textContent = text || '';
     }
 
@@ -563,7 +566,7 @@
       let top = lineTop + c.lineH + 2;
       if (top + ph > body.clientHeight - 4 && lineTop - ph - 2 >= 0) top = lineTop - ph - 2;
       popup.style.left = Math.max(0, Math.min(left, body.clientWidth - popup.offsetWidth - 4)) + 'px';
-      popup.style.top = Math.max(0, top) + 'px';
+      popup.style.top = Math.max(0, Math.min(top, body.clientHeight - ph - 4)) + 'px';
     }
 
     /** Scrollt das Textfeld so, dass die Stelle pos zu sehen ist. */
@@ -739,7 +742,10 @@
       const prefix = m[1];
       const token = ++st.mentionSeq;
       // das Kürzel, das gerade getippt wird, schlägt sich nicht selbst vor (es steht nach dem Speichern vielleicht schon im Index)
-      const items = (await Mentions.suggest(prefix, 9)).filter(it => !(it.handle.toLowerCase() === prefix.toLowerCase() && !it.name)).slice(0, 8);
+      // (people.keepTyped: der Gastgeber nimmt das getippte Wort selbst aus seinen Vorschlägen; ein gleiches Kürzel von anderswo bleibt)
+      const keepTyped = !!(o.people && typeof o.people === 'object' && o.people.keepTyped);
+      const items = keepTyped ? await Mentions.suggest(prefix, 8)
+        : (await Mentions.suggest(prefix, 9)).filter(it => !(it.handle.toLowerCase() === prefix.toLowerCase() && !it.name)).slice(0, 8);
       if (token !== st.mentionSeq || document.activeElement !== ta) return;
       if (!items.length) { closeMentionPopup(); return; }
       st.mention = { start: caret - prefix.length, items, index: 0 };
@@ -939,7 +945,7 @@
       const gridBox = check(t('Mit Rahmen (mehrzeilige Felder)'), gridOn, 'tp-grid-kind');
       gridBox.parentElement.title = t('Tabelle mit Rahmen aus «+---+»: Felder dürfen mehrere Zeilen haben und sich über mehrere Spalten ziehen. Ohne: einfache Tabelle wie bei GitHub');
       gridBox.addEventListener('change', () => { try { global.localStorage.setItem(GRID_KEY, gridBox.checked ? '1' : '0'); } catch (e) { /* nicht gemerkt */ } });
-      const box = h('div', { className: 'table-picker', hidden: true, role: 'dialog', 'aria-label': t('Tabelle einfügen') }, grid, size, opts);
+      const box = h('div', { className: 'table-picker', id: ids.tablePicker || null, hidden: true, role: 'dialog', 'aria-label': t('Tabelle einfügen') }, grid, size, opts);
       root.appendChild(box);
       const p = { box, grid, cols: 0, rows: 0, drag: false, sel: null, anchor: null };
       const paint = () => {
@@ -1040,8 +1046,8 @@
     /** Doppelklick auf den Text einer Aufgabe in der Vorschau: Aufgabe samt Unteraufgaben abschliessen oder wieder öffnen. */
     function onPreviewDblClick(e) {
       if (st.readOnly || e.target.closest('a, input, button, textarea')) return;
-      const li = e.target.closest('li.task[data-line]');
-      if (!li || !preview.contains(li)) return;
+      const li = e.target.closest('li'); // die nächste Zeile der Liste zählt (ein Punkt unter einer Aufgabe ist keine Aufgabe)
+      if (!li || !li.matches('li.task[data-line]') || !preview.contains(li)) return;
       const r = Tasks.doubleClick(ta.value, Number(li.dataset.line));
       if (!r.action) return;
       global.getSelection().removeAllRanges();
@@ -1208,6 +1214,7 @@
     }
 
     function forgetAttachmentUrl(id) {
+      if (id == null) { for (const x of [...st.attUrls.keys()]) forgetAttachmentUrl(x); return; } // ohne Kennung: alle (andere Datenbank)
       const url = st.attUrls.get(id);
       if (url) { URL.revokeObjectURL(url); st.attUrls.delete(id); }
     }
@@ -1252,7 +1259,7 @@
     async function removeAttachment(a) {
       if (st.readOnly || !o.attachments.remove) return;
       if (!(await ask(t('Bild „{name}“ aus dieser Notiz entfernen? Verweise im Text zeigen danach ins Leere.', { name: a.name }), { danger: true, yes: t('Löschen') }))) return;
-      try { await o.attachments.remove(a.id); } catch (e) { hint(errorText(e)); return; }
+      try { await o.attachments.remove(a.id); } catch (e) { hint(errorText(e), 'error'); return; }
       forgetAttachmentUrl(a.id);
       await renderAttachments();
       if (st.mode !== 'edit') renderPreview();
@@ -1303,8 +1310,8 @@
     async function addAttachments(files) {
       if (!o.attachments || !o.attachments.add || st.readOnly) return;
       const images = [...files].filter(f => f && f.type && f.type.startsWith('image/'));
-      if (!images.length) { hint(t('Nur Bilder können angehängt werden.')); return; }
-      hint(tn('Bild wird eingefügt…', '{n} Bilder werden eingefügt…', images.length));
+      if (!images.length) { hint(t('Nur Bilder können angehängt werden.'), 'error'); return; }
+      hint(tn('Bild wird eingefügt…', '{n} Bilder werden eingefügt…', images.length), 'saving');
       try {
         for (const file of images) {
           const prepared = await prepareImage(file);
@@ -1314,7 +1321,7 @@
         }
         hint('');
       } catch (e) {
-        hint(t('Bild konnte nicht eingefügt werden: {fehler}', { fehler: errorText(e) }));
+        hint(t('Bild konnte nicht eingefügt werden: {fehler}', { fehler: errorText(e) }), 'error');
       }
       await renderAttachments();
     }
@@ -1373,6 +1380,19 @@
 
     // ---------- Ausfüllbare Platzhalter (v2.12.0) ----------
 
+    // Ein Feld des Gastgebers vor dem Text (in NoNotes der Titel, placeholders.field) macht mit: seine offenen Platzhalter kommen zuerst,
+    // Tab und Enter springen von dort in den Text, Umschalt+Tab aus dem ersten Platzhalter des Texts zurück; gleiche Namen werden in
+    // beiden ausgefüllt (im Feld immer als Text, ohne «behalten»).
+    const phField = (o.placeholders && o.placeholders.field) || null;
+    const fieldText = () => (phField ? phField.value : '');
+    /** Text ausserhalb des Editors, dessen Platzhalter ihre Beschreibung behalten: das Feld und placeholders.extraText(). */
+    const outsideText = () => [fieldText(), o.placeholders && o.placeholders.extraText ? o.placeholders.extraText() : ''].filter(Boolean).join('\n');
+    const openInField = () => (phField ? PH.scan(phField.value).find(p => p.value == null) || null : null);
+    /** Gleiche Namen ausserhalb (Feld, weitere Texte des Gastgebers) füllt placeholders.onFill(name, value, keep, { field, data }). */
+    const notifyFill = (name, value, fromField) => {
+      if (o.placeholders && o.placeholders.onFill) o.placeholders.onFill(name, value, st.ph ? st.ph.keep : false, { field: !!fromField, data: st.ph ? st.ph.data : undefined });
+    };
+
     async function keepPlaceholders() {
       try { return o.placeholders && o.placeholders.keep ? !!(await o.placeholders.keep()) : false; } catch (e) { return false; }
     }
@@ -1400,11 +1420,13 @@
     async function startPlaceholders(opts) {
       if (!PH || st.readOnly) return false;
       const toks = PH.scan(ta.value);
-      if (!toks.length) return false;
+      const fieldTok = openInField();
+      if (!toks.length && !fieldTok) return false;
       if (st.mode === 'preview') setMode('split', false);
-      st.ph = { keep: typeof opts.keep === 'boolean' ? opts.keep : await keepPlaceholders(), insTail: opts.end == null ? null : ta.value.length - opts.end, field: null };
-      selectField(toks.find(p => p.start >= (opts.start || 0)) || toks[0], true);
+      st.ph = { keep: typeof opts.keep === 'boolean' ? opts.keep : await keepPlaceholders(), insTail: opts.end == null ? null : ta.value.length - opts.end, field: null, data: opts.data };
       hint(t('Platzhalter ausfüllen: Tab springt zum nächsten, Umschalt+Tab zurück, Esc beendet.'));
+      if (fieldTok) { selectOuterField(fieldTok); return true; }
+      selectField(toks.find(p => p.start >= (opts.start || 0)) || toks[0], true);
       return true;
     }
 
@@ -1422,7 +1444,16 @@
       showPhHint(tok.name, a, b);
     }
 
-    /** Kasten mit der Beschreibung unter der Zeile des Platzhalters; ohne Beschreibung keiner. */
+    /** Wählt einen offenen Platzhalter im Feld des Gastgebers ganz aus. */
+    function selectOuterField(tok) {
+      const ph = st.ph;
+      phField.focus();
+      phField.setSelectionRange(tok.start, tok.end);
+      ph.field = { name: tok.name, start: tok.start, tail: phField.value.length - tok.end, open: true, token: phField.value.slice(tok.start, tok.end), outer: true };
+      showPhHint(tok.name, null);
+    }
+
+    /** Kasten mit der Beschreibung unter der Zeile des Platzhalters (pos null: unter dem Feld des Gastgebers); ohne Beschreibung keiner. */
     function showPhHint(name, pos, end) {
       const desc = PH.describe(PH.descriptions(ta.value), name);
       if (!desc) { hidePhHint(); return; }
@@ -1431,7 +1462,11 @@
       phHint.replaceChildren(h('div', { className: 'ph-hint-name' }, name), descBox,
         h('div', { className: 'ph-hint-keys' }, t('Tab: nächster Platzhalter · Umschalt+Tab: voriger · Esc: fertig')));
       phHint.hidden = false;
-      placePopupAt(phHint, pos, end);
+      if (pos == null && phField) { // unter das Feld, damit der Text frei bleibt
+        const box = body.getBoundingClientRect(), fr = phField.getBoundingClientRect();
+        phHint.style.left = Math.max(0, fr.left - box.left + 8) + 'px';
+        phHint.style.top = Math.round(fr.bottom - box.top + 4) + 'px';
+      } else placePopupAt(phHint, pos, end);
     }
 
     function hidePhHint() {
@@ -1447,6 +1482,7 @@
       if (!f) return null;
       ph.field = null;
       hidePhHint();
+      if (f.outer) return leaveOuterField(f);
       const v = ta.value;
       const end = v.length - f.tail;
       if (end < f.start) return null;
@@ -1466,12 +1502,19 @@
       let fStart = cut ? cut.start : f.start;
       let fEnd = cut ? cut.start + cut.len : end;
       let r = { text, edits: [] };
-      if (!/\n/.test(typed)) r = fillName(text, f.name, typed, ph.keep);
+      if (!/\n/.test(typed)) {
+        r = fillName(text, f.name, typed, ph.keep);
+        if (phField) {
+          const fv = PH.flatten(fillName(phField.value, f.name, typed, false).text, { open: n => `{{?${n}}}` });
+          if (fv !== phField.value) phField.value = fv;
+        }
+        notifyFill(f.name, typed, false); // gleiche Namen beim Gastgeber, vor dem Aufräumen der Beschreibungen
+      }
       const map2 = pos => shiftPos(pos, r.edits);
       fStart = map2(fStart);
       fEnd = map2(fEnd);
       const caret = map2(map1(ta.selectionStart));
-      const next = PH.pruneDescriptions(r.text, o.placeholders && o.placeholders.extraText ? o.placeholders.extraText() : '');
+      const next = PH.pruneDescriptions(r.text, outsideText());
       if (ph.insTail != null) {
         const insEnd = v.length - ph.insTail;
         let tail = ph.insTail;
@@ -1486,9 +1529,32 @@
         ta.setSelectionRange(c, c);
         onEdit();
       }
-      // Gleiche Namen ausserhalb des Editors (in NoNotes: der Titel) füllt der Gastgeber
-      if (o.placeholders && o.placeholders.onFill && !/\n/.test(typed) && typed !== f.token) o.placeholders.onFill(f.name, typed, ph.keep);
       return { start: Math.min(fStart, ta.value.length), end: Math.min(fEnd, ta.value.length), name: f.name };
+    }
+
+    /** Verlässt einen Platzhalter im Feld des Gastgebers: der Wert kommt in alle gleichen Namen im Text (und beim Gastgeber). */
+    function leaveOuterField(f) {
+      const ph = st.ph;
+      const v = phField.value;
+      const end = v.length - f.tail;
+      const typed = end >= f.start ? v.slice(f.start, end) : f.token;
+      if (typed !== f.token && typed.trim()) {
+        const before = ta.value;
+        const r = fillName(before, f.name, typed, ph.keep);
+        const fv = PH.flatten(fillName(v, f.name, typed, false).text, { open: n => `{{?${n}}}` });
+        if (fv !== v) phField.value = fv;
+        const next = PH.pruneDescriptions(r.text, outsideText());
+        if (ph.insTail != null) {
+          const insEnd = before.length - ph.insTail;
+          let tail = ph.insTail;
+          for (const x of r.edits) if (x.start >= insEnd) tail += x.len - (x.end - x.start);
+          ph.insTail = Math.max(0, tail - (r.text.length - next.length));
+        }
+        ta.value = next;
+        notifyFill(f.name, typed, true);
+        onEdit();
+      }
+      return { start: -1, end: -1, outer: true, name: f.name };
     }
 
     /** Tab (dir 1) oder Umschalt+Tab (dir -1): zum nächsten oder vorigen Platzhalter; nach dem letzten ans Ende des eingefügten Texts. */
@@ -1499,8 +1565,16 @@
       if (!st.ph) return;
       const toks = PH.scan(ta.value).filter(p => !left || !PH.same(p.name, left.name)); // gleiche Namen sind schon ausgefüllt
       const at = left || { start: ta.selectionStart, end: ta.selectionEnd };
-      const tok = dir > 0 ? toks.find(p => p.start >= at.end && (!left || p.start !== left.start)) : toks.filter(p => p.end <= at.start).pop() || null;
-      if (!tok && dir < 0) { if (left) ta.setSelectionRange(left.start, left.start); return; }
+      let tok = null;
+      if (at.outer) tok = dir > 0 ? toks[0] || null : null;
+      else if (dir > 0) tok = toks.find(p => p.start >= at.end && (!left || p.start !== left.start)) || null;
+      else tok = toks.filter(p => p.end <= at.start).pop() || null;
+      if (!tok && dir < 0) {
+        const fieldTok = openInField();
+        if (fieldTok) { selectOuterField(fieldTok); return; }
+        if (left) ta.setSelectionRange(left.start, left.start);
+        return;
+      }
       if (!tok) {
         const endAt = ph.insTail != null ? Math.max(0, ta.value.length - ph.insTail) : (left ? left.end : ta.selectionEnd);
         endPlaceholders();
@@ -1544,12 +1618,12 @@
       const ph = st.ph;
       if (ph && ph.field) {
         const end = ta.value.length - ph.field.tail;
-        if (c >= ph.field.start && c <= end) return; // noch im Feld
+        if (!ph.field.outer && c >= ph.field.start && c <= end) return; // noch im Feld
         leaveField();
       }
       const tok = PH.at(ta.value, ta.selectionStart);
       if (!tok) { if (st.ph) endPlaceholders(); return; }
-      if (!st.ph) st.ph = { keep: await keepPlaceholders(), insTail: null, field: null };
+      if (!st.ph) st.ph = { keep: await keepPlaceholders(), insTail: null, field: null, data: undefined };
       selectField(tok, tok.value == null);
     }
 
@@ -1558,9 +1632,12 @@
       if (st.readOnly) return;
       endPlaceholders();
       const v = ta.value;
-      const next = PH.pruneDescriptions(PH.resolve(v, name || null), '');
-      if (next === v) return;
-      replaceText(next);
+      const fv = fieldText();
+      const next = PH.pruneDescriptions(PH.resolve(v, name || null), outsideText());
+      const nf = phField ? PH.resolve(fv, name || null) : fv;
+      if (next === v && nf === fv) return;
+      if (phField) phField.value = nf;
+      if (next === v) onEdit(); else replaceText(next);
       hint(name ? t('Platzhalter «{name}» aufgelöst.', { name }) : t('Alle Platzhalter dieser Notiz aufgelöst.'));
     }
 
@@ -1589,7 +1666,7 @@
       const toks = PH.scan(ta.value).filter(p => PH.same(p.name, span.dataset.ph));
       if (!toks.length) return;
       if (st.mode === 'preview') setMode('split', false);
-      if (!st.ph) st.ph = { keep: await keepPlaceholders(), insTail: null, field: null };
+      if (!st.ph) st.ph = { keep: await keepPlaceholders(), insTail: null, field: null, data: undefined };
       selectField(toks[0], true);
     }
 
@@ -1723,6 +1800,14 @@
         o.showMenu(items, r.left, r.bottom + 4);
       });
     }
+    // Tasten im Feld des Gastgebers, solange dort ein Platzhalter gewählt ist: Tab und Enter in den Text, Umschalt+Tab zurück, Esc beendet
+    const onFieldKeydown = e => {
+      const ph = st.ph;
+      if (!ph || !ph.field || !ph.field.outer) return;
+      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); phJump(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); leaveField(); endPlaceholders(); }
+    };
+    if (phField) phField.addEventListener('keydown', onFieldKeydown);
     root.addEventListener('keydown', onRootKeydown);
     root.addEventListener('focusin', () => { lastFocused = api; });
     ta.addEventListener('keydown', onTextKeydown);
@@ -1771,7 +1856,7 @@
       if (st.wiki) placePopupAt(wikiPopup, Math.max(0, st.wiki.start - 2));
       if (st.dp) placeDatePicker();
       const f = st.ph && st.ph.field;
-      if (f && !phHint.hidden) placePopupAt(phHint, f.start, ta.value.length - f.tail);
+      if (f && !f.outer && !phHint.hidden) placePopupAt(phHint, f.start, ta.value.length - f.tail);
     });
     ta.addEventListener('contextmenu', onPhContextMenu);
     ta.addEventListener('paste', e => {
@@ -1857,6 +1942,20 @@
       isReadOnly: () => st.readOnly,
       updateTableMeta,
       refreshExtensions: () => { renderPluginTools(); if (st.mode !== 'edit') renderPreview(); },
+      /** Wählt die Zeile lineIndex (0-basiert) im Text aus und scrollt sie ins obere Drittel (Sprung aus einer Liste, NoNotes jumpToLine). */
+      selectLine(lineIndex) {
+        const v = ta.value;
+        const start = Q.offsetOfLine(v, lineIndex);
+        let end = v.indexOf('\n', start);
+        if (end < 0) end = v.length;
+        ta.focus();
+        ta.setSelectionRange(start, end);
+        const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 24;
+        const top = sync && st.mode !== 'preview' ? sync.topOfLine(lineIndex) : lineIndex * lineHeight;
+        ta.scrollTop = Math.max(0, top - ta.clientHeight / 3);
+      },
+      /** Der Gastgeber hat textarea.value selbst gesetzt (etwa beim Zusammenführen, Cursor bleibt): Zähler, Schrift und Vorschau nachziehen. */
+      refresh: () => { renderCounts(); updateEditorFont(); schedulePreview(); },
       get: () => ta.value,
       set,
       focus: () => ta.focus(),
@@ -1864,7 +1963,7 @@
       mode: (name, remember) => { if (name) setMode(name, remember !== false); return st.mode; },
       insert: insertText,
       insertAtCursor: text => { if (!st.readOnly) insertAtCursor(String(text)); },
-      fillPlaceholders: opts => startPlaceholders({ start: 0, end: PH ? PH.stripDescriptions(ta.value).replace(/\s+$/, '').length : ta.value.length, keep: opts && opts.keep }),
+      fillPlaceholders: opts => startPlaceholders({ start: 0, end: PH ? PH.stripDescriptions(ta.value).replace(/\s+$/, '').length : ta.value.length, keep: opts && opts.keep, data: opts && opts.data }),
       startPlaceholders,
       selection: () => ({ start: ta.selectionStart || 0, end: ta.selectionEnd || 0, text: ta.value.slice(ta.selectionStart || 0, ta.selectionEnd || 0) }),
       replaceSelection: text => {
@@ -1889,6 +1988,7 @@
         clearTimeout(st.previewTimer);
         closeTablePicker(false);
         closeDatePicker();
+        if (phField) phField.removeEventListener('keydown', onFieldKeydown);
         global.removeEventListener('keyup', offCtrl);
         global.removeEventListener('blur', offCtrl);
         for (const url of st.attUrls.values()) URL.revokeObjectURL(url);

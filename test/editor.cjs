@@ -196,6 +196,68 @@ async function runHostHooks(browser, part) {
   await page.close();
 }
 
+/* Was NoNotes v4.0.0 braucht: ein Feld vor dem Text (der Titel) beim Ausfüllen von Platzhaltern, weitere feste Kennungen,
+   refresh() nach einem Text von aussen, selectLine(), forgetAttachment() ohne Kennung, hint(text, kind). */
+async function runHostField(browser, part) {
+  const page = await open(browser);
+  const r = await page.evaluate(async () => {
+    const box = document.createElement('div');
+    document.body.appendChild(box);
+    const title = document.createElement('input');
+    title.id = 't2';
+    box.appendChild(title);
+    const host = document.createElement('div');
+    box.appendChild(host);
+    window.log2 = { filled: [], hints: [] };
+    window.ed2 = NoNotesEditor.create(host, {
+      remember: false, mode: 'edit', ids: { body: 'b2', editorBody: 'eb2', mirror: 'm2', tablePicker: 'tp2' },
+      placeholders: { field: title, onFill: (n, v, k, info) => window.log2.filled.push([n, v, k, info.field, info.data]) },
+      attachments: { list: () => [], add: async () => ({ id: 1 }) },
+      hint: (t, k) => window.log2.hints.push([t, k]),
+    });
+    title.value = 'Protokoll {{?Kunde}}';
+    window.ed2.set('Kunde: {{?Kunde}}, Ort {{?Ort}}\n\n```template-description Kunde\nFirma, wie im Handelsregister\n```');
+    const started = await window.ed2.startPlaceholders({ start: 0, end: 29, keep: false, data: { tag: 1 } });
+    return { started, active: document.activeElement === title, sel: [title.selectionStart, title.selectionEnd], hint: !document.querySelector('#eb2 .ph-hint').hidden };
+  });
+  assert.deepEqual(r, { started: true, active: true, sel: [10, 20], hint: true }, 'der Platzhalter im Feld kommt zuerst, mit Beschreibung');
+  await page.keyboard.type('Muster AG');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.inputValue('#t2'), 'Protokoll Muster AG');
+  assert.equal(await page.inputValue('#b2'), 'Kunde: Muster AG, Ort {{?Ort}}', 'gleicher Name im Text ausgefüllt, Beschreibung ohne Platzhalter weg');
+  assert.equal(await page.evaluate(() => window.ed2.selection().text), '{{?Ort}}', 'Tab springt aus dem Feld in den Text');
+  assert.deepEqual(await page.evaluate(() => window.log2.filled), [['Kunde', 'Muster AG', false, true, { tag: 1 }]], 'onFill mit field und data');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'b2', 'ohne offenen Platzhalter im Feld bleibt der Cursor im Text');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { document.getElementById('t2').value = 'Für {{?Wer}}'; window.ed2.set('{{?Wer}} und {{?Was}}'); window.ed2.startPlaceholders({ start: 0, end: 18, keep: true }); });
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => window.ed2.selection().text), '{{?Was}}', 'übersprungen: der Name gilt als erledigt (wie in NoNotes)');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => window.ed2.selection().text), '{{?Wer}}', 'zurück zum vorigen im Text');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 't2', 'Umschalt+Tab aus dem ersten Platzhalter des Texts zurück ins Feld');
+  await page.keyboard.press('Escape');
+  part('Platzhalter mit einem Feld davor (NoNotes: der Titel): zuerst das Feld, Tab in den Text, gleiche Namen, zurück mit Umschalt+Tab');
+
+  const ids = await page.evaluate(() => { window.ed2.runCommand('table'); return ['eb2', 'm2', 'tp2'].map(id => !!document.getElementById(id)); });
+  assert.deepEqual(ids, [true, true, true], 'feste Kennungen editorBody, mirror, tablePicker');
+  await page.keyboard.press('Escape');
+  const grid = await page.evaluate(() => {
+    document.getElementById('b2').value = '+---+\n| a |\n+---+';
+    window.ed2.refresh();
+    return document.getElementById('eb2').classList.contains('grid-font');
+  });
+  assert.equal(grid, true, 'refresh() nach einem Text von aussen: Festbreitenschrift für Tabellen mit Rahmen');
+  assert.equal(await page.evaluate(() => { window.ed2.set('eins\nzwei\ndrei'); window.ed2.selectLine(1); return window.ed2.selection().text; }), 'zwei', 'selectLine()');
+  await page.evaluate(() => window.ed2.forgetAttachment());
+  await page.evaluate(() => window.ed2.addAttachments([new File(['x'], 'a.txt', { type: 'text/plain' })]));
+  assert.deepEqual(await page.evaluate(() => window.log2.hints.slice(-1)), [['Nur Bilder können angehängt werden.', 'error']], 'hint(text, kind)');
+  part('Kennungen editorBody, mirror, tablePicker; refresh(), selectLine(), forgetAttachment(), hint mit Art');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+}
+
 async function runLabels(browser, part) {
   const page = await open(browser, '?lang=en');
   assert.equal(await page.$eval('#mdToolbar [data-cmd="bold"]', b => b.getAttribute('aria-label')), 'Strong', 'Ersetzung des Gastgebers');
@@ -215,5 +277,6 @@ suite('Editor-Test', [
   { name: 'Grundlagen: Aufbau, Darstellungen, Toolleiste, Tasten, Aufgaben in der Vorschau, Speichern', run: runBasics },
   { name: 'Listen unter dem Cursor: @kürzel, [[Verweise]], Datumsauswahl, Tabellen, Platzhalter', run: runPopups },
   { name: 'Rückrufe des Gastgebers: Bilder, Erweiterungen, Schreibschutz, Konflikt', run: runHostHooks },
+  { name: 'Für NoNotes v4.0.0: Feld vor dem Text bei Platzhaltern, Kennungen, refresh, selectLine, Hinweise mit Art', run: runHostField },
   { name: 'Texte: Englisch mit Ersetzung durch den Gastgeber', run: runLabels },
 ], { browser: true });
