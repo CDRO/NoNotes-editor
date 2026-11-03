@@ -83,7 +83,7 @@ Listen unter dem Cursor (Personen, Verweise, Platzhalter, Datumsauswahl, Tabelle
 | `render(text, ed)`, `afterRender(preview, ed)` | weitere Angaben an `NoNotesMarkdown.render` (`highlight`, `noteLink` …); Nachbearbeitung nach jedem Zeichnen der Vorschau | Suchtreffer, Links auf Notizen (`noteLinkResolver`) | – |
 | `onLinkClick(a, event, ed)` | eigene Links in der Vorschau (true = erledigt) | `a.md-note` (`followNoteLink`) | Links auf Einträge |
 | `people` | `@kürzel` über `NoNotesMentions` (Lieferanten meldet der Gastgeber an); `false` schaltet ab; `{ keepTyped: true }`: der Gastgeber lässt das getippte Wort selbst weg, ein gleiches Kürzel von anderswo bleibt in der Liste | lokale Kürzel, `ctx.people.provide`, `{ keepTyped: true }` | Personen des Portfolios |
-| `placeholders: { keep(), field, onFill(name, value, keep, { field, data }), extraText() }` | ausfüllbare Platzhalter: Einstellung «behalten»; `field`: ein Eingabefeld vor dem Text, dessen offene Platzhalter zuerst drankommen (Tab/Enter in den Text, Umschalt+Tab zurück, gleiche Namen in beiden); `onFill` für gleiche Namen beim Gastgeber (vor dem Aufräumen der Beschreibungen), `data` aus `startPlaceholders` | `field: #title`, `onFill` füllt die Unternotizen einer Vorlage | Vorlagen der Felder |
+| `placeholders: { keep(), field, onFill(name, value, keep, { field, data }), extraText() }` | ausfüllbare Platzhalter: Einstellung «behalten»; `field`: ein Eingabefeld vor dem Text, dessen offene Platzhalter zuerst drankommen (Tab in den Text, Enter bestätigt und beendet das Ausfüllen, Umschalt+Tab zurück, gleiche Namen in beiden); `onFill` für gleiche Namen beim Gastgeber (`keep` ist `false`, wenn der Wert mehrere Zeilen hat und deshalb als Text geschrieben wurde) (vor dem Aufräumen der Beschreibungen), `data` aus `startPlaceholders` | `field: #title`, `onFill` füllt die Unternotizen einer Vorlage | Vorlagen der Felder |
 | `history: { label, title, open(ed) }`, `templates: { insert(ed), save(ed) }`, `actions: [{ id, label, title, run(ed) }]`, `help(ed)` | Knöpfe des Gastgebers neben der Toolleiste, F1 | Verlauf und Vorlagen bleiben im Notizmenü; `help` öffnet die Hilfe | Verlauf…, Vorlagen, «Entscheid erfassen…» |
 | `showMenu(items, x, y)`, `confirm(text, opts)`, `hint(text, kind)`, `onError(e)` | Kontextmenüs (Tabellen, Pfade, Platzhalter), Rückfragen, Hinweise | `showContextMenu`, `confirm`, Statuszeile | `SteeringBoardUI` |
 | `counts`, `answers`, `modernizeDates`, `dates`, `entity` | Zähler in der Fusszeile, «Beantworten»/«Entscheiden» in der Vorschau, alte `@Datum` umschreiben, Datumsauswahl, Angaben für Erweiterungen | `modernizeDates: true` | `counts`, `answers`, `entity` |
@@ -125,6 +125,30 @@ Alles wahlweise; ohne die neuen Angaben verhält sich der Baustein wie v1.0.0 (g
 **Entscheid zu E4:** Eigene Schlüssel («fett», «kursiv» …) hätten jedem Gastgeber, der die Texte des Pakets mit seinem Sprachwerkzeug
 vollständig prüft (NoNotes und SteeringBoard: `i18n check --strict`), vier fehlende Texte je Sprachpaket gebracht – eine Änderung auf
 seiner Seite für ein Minor. Die Beschriftungen sind dieselben Wörter und überall übersetzt.
+
+## 4b. Neu in v1.2.0 (Ausfüllen von Platzhaltern, Wünsche des Eigentümers 2026-11-03)
+
+Tasten beim Ausfüllen (nach dem Einfügen einer Vorlage, `insert(text)`, `startPlaceholders`):
+
+| Taste | im Text | im Feld des Gastgebers (`placeholders.field`) |
+| --- | --- | --- |
+| Tab / Umschalt+Tab | zum nächsten / vorigen Platzhalter; nach dem letzten ans Ende des eingefügten Texts | wie im Text (Tab in den Text) |
+| Enter | **neue Zeile im Wert**, nie ein Sprung, auch mit «behalten» | bestätigt den Wert und **beendet** das Ausfüllen |
+| Esc | beendet das Ausfüllen (mit offener Datumsauswahl: erst sie) | beendet das Ausfüllen |
+
+- **Mehrzeilige Werte.** Ein behaltener Platzhalter `{{?Name: Wert}}` ist einzeilig. Hat der Wert beim Verlassen einen Zeilenumbruch, wird der
+  ganze Platzhalter durch den Text ersetzt (auch mit «behalten»), gleiche Namen im Text bekommen denselben Text, im Feld des Gastgebers
+  steht er auf einer Zeile (Umbrüche als Leerzeichen). `onFill(name, value, keep, …)` wird auch dafür gerufen, mit `keep = false`
+  (bis v1.1.0 blieb ein Wert mit Zeilenumbruch ohne Meldung).
+- **Fortsetzen.** Ein Klick (oder Pfeiltasten) in einen noch vorhandenen Platzhalter beginnt das Ausfüllen wieder, auch nach Esc und nach
+  Enter im Feld des Gastgebers; Tab und Umschalt+Tab gehen von dort weiter.
+- **Termine.** Wird ein Platzhalter der gewählte (Tab, Umschalt+Tab, Klick) und steht er unmittelbar nach « >» (eine Frist) oder hat er ein
+  Datum als Vorgabe (alles, was `dates.js` als Termin annimmt, auch mit Uhrzeit), öffnet die Datumsauswahl; vorgewählt ist die Vorgabe,
+  sonst heute. Ein Klick oder Enter in der Auswahl setzt «TT.MM.JJJJ» als Wert, das Ausfüllen geht weiter. Das erste Esc schliesst nur die
+  Auswahl, das zweite beendet das Ausfüllen. Tippen ersetzt den Wert wie bisher (der Kalender folgt Ziffern, «.» und «-»; ein anderes
+  Zeichen schliesst ihn). **Entscheid:** bei offener Auswahl springen Tab und Umschalt+Tab zum nächsten Platzhalter (sonst gehen sie durch
+  die Bereiche der Auswahl); Uhrzeit und Schnellknöpfe bleiben mit der Maus erreichbar. Für Platzhalter im Feld des Gastgebers öffnet keine Auswahl.
+- Keine neuen oder geänderten Schlüssel im Katalog (die Hinweistexte nennen weiter nur Tab und Esc).
 
 ## 5. Texte und Ersetzungen
 

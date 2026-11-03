@@ -384,11 +384,188 @@ async function runLabels(browser, part) {
   await page.close();
 }
 
+/* v1.2.0, Wünsche von SteeringBoard: Enter im Platzhalter, Enter im Feld des Gastgebers, Fortsetzen, Datumsauswahl bei Fristen. */
+async function hostEditor(page, { title, value, keep }) {
+  await page.evaluate(async ([ti, v, k]) => {
+    const box = document.createElement('div');
+    document.body.appendChild(box);
+    const field = document.createElement('input');
+    field.id = 'tt';
+    box.appendChild(field);
+    const host = document.createElement('div');
+    box.appendChild(host);
+    window.fills = [];
+    window.ed5 = NoNotesEditor.create(host, {
+      remember: false, mode: 'edit', ids: { body: 'b5', editorBody: 'eb5', mirror: 'm5', tablePicker: 'tp5' },
+      placeholders: { field, keep: async () => k, onFill: (n, val, kept, info) => window.fills.push([n, val, kept, info.field]) },
+      attachments: { list: () => [], add: async () => ({ id: 1 }) },
+    });
+    field.value = ti || '';
+    window.ed5.set(v);
+    await window.ed5.startPlaceholders({ start: 0, keep: k });
+  }, [title || '', value, !!keep]);
+}
+const sel5 = page => page.evaluate(() => window.ed5.selection().text);
+const text5 = page => page.inputValue('#b5');
+const fills = page => page.evaluate(() => window.fills);
+/** Klick in den Text an die Stelle pos (der Cursor kommt dorthin, dann das click-Ereignis wie bei der Maus). */
+const clickAt = (page, pos) => page.evaluate(p => {
+  const ta = document.getElementById('b5');
+  ta.focus();
+  ta.setSelectionRange(p, p);
+  ta.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}, pos);
+const dpVisible = page => page.$eval('#eb5 .dp', d => !d.hidden);
+const dpDay = page => page.$eval('#eb5 .dp button.sel', b => b.dataset.iso);
+
+async function runV12(browser, part) {
+  // 1. Enter im Platzhalter im Text: neue Zeile, kein Sprung; ohne «behalten»
+  let page = await open(browser);
+  await hostEditor(page, { value: 'Kunde {{?Name}} und {{?Ort}}', keep: false });
+  await page.keyboard.type('Anna');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Muster');
+  assert.equal(await text5(page), 'Kunde Anna\nMuster und {{?Ort}}', 'Enter ist eine neue Zeile im Wert, kein Sprung');
+  await page.keyboard.press('Tab');
+  assert.equal(await sel5(page), '{{?Ort}}', 'Tab springt weiter');
+  assert.deepEqual((await fills(page)).pop(), ['Name', 'Anna\nMuster', false, false], 'onFill: nicht behalten');
+  await page.keyboard.press('Escape');
+  part('Enter im Platzhalter: neue Zeile, kein Sprung (ohne behalten)');
+
+  // 2. mit «behalten»: der Wert mit Zeilenumbruch wird Text, einzeilige bleiben {{?Name: Wert}}
+  await page.close();
+  page = await open(browser);
+  await hostEditor(page, { value: 'Kunde {{?Name}} und {{?Ort}}', keep: true });
+  await page.keyboard.type('Anna');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Muster');
+  assert.equal(await text5(page), 'Kunde Anna\nMuster und {{?Ort}}', 'auch mit behalten springt Enter nicht');
+  await page.keyboard.press('Tab');
+  assert.equal(await text5(page), 'Kunde Anna\nMuster und {{?Ort}}', 'mit Zeilenumbruch: Text statt {{?Name: …}}');
+  assert.deepEqual((await fills(page)).pop(), ['Name', 'Anna\nMuster', false, false], 'onFill meldet: nicht behalten');
+  await page.keyboard.type('Ulm');
+  await page.keyboard.press('Tab');
+  assert.equal(await text5(page), 'Kunde Anna\nMuster und {{?Ort: Ulm}}', 'einzeilig bleibt behalten');
+  assert.deepEqual((await fills(page)).pop(), ['Ort', 'Ulm', true, false]);
+  part('Enter im Platzhalter mit behalten: Wert mit Zeilenumbruch als Text, onFill mit keep false; einzeilige bleiben');
+
+  // 3. einen behaltenen Wert über mehrere Zeilen erweitern: ganzer Platzhalter wird Text, gleiche Namen ebenso, das Feld bekommt eine Zeile
+  await page.close();
+  page = await open(browser);
+  await hostEditor(page, { title: 'T {{?A}}', value: '{{?B}} {{?A: x}} und {{?A}}', keep: true });
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'tt', 'das Feld zuerst');
+  await page.keyboard.press('Tab'); // A im Feld übersprungen
+  assert.equal(await sel5(page), '{{?B}}');
+  await clickAt(page, (await text5(page)).indexOf('x') + 1); // Klick hinter «x» im ausgefüllten A
+  assert.equal(await page.evaluate(() => window.ed5.selection().text), '', 'ein ausgefüllter Platzhalter: der Cursor steht im Wert');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('z');
+  await page.keyboard.press('Tab');
+  assert.equal(await text5(page), '{{?B}} x\nz und x\nz', 'ganzer Platzhalter wird Text, gleiche Namen ebenso');
+  assert.equal(await page.inputValue('#tt'), 'T x z', 'im Feld auf einer Zeile');
+  assert.deepEqual((await fills(page)).pop(), ['A', 'x\nz', false, false]);
+  part('Mehrzeiliger Wert in einem ausgefüllten Platzhalter (behalten): Text, gleiche Namen, Feld einzeilig');
+  await page.close();
+
+  // 4. Gastgeberfeld: Enter bestätigt und beendet; Tab geht weiter
+  page = await open(browser);
+  await hostEditor(page, { title: 'P {{?Kunde}}', value: 'Ort {{?Ort}} Plz {{?Plz}}', keep: false });
+  await page.keyboard.type('Muster');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.inputValue('#tt'), 'P Muster', 'Enter bestätigt den Wert');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'tt', 'der Fokus bleibt im Feld');
+  assert.equal(await text5(page), 'Ort {{?Ort}} Plz {{?Plz}}', 'kein Sprung in den Text');
+  assert.equal(await page.$eval('#eb5 .ph-hint', d => d.hidden), true);
+  assert.deepEqual((await fills(page)).pop(), ['Kunde', 'Muster', false, true]);
+  // 5. Fortsetzen nach Enter im Feld: Klick in den Platzhalter, Tab geht zum nächsten
+  await clickAt(page, 6);
+  assert.equal(await sel5(page), '{{?Ort}}', 'Klick beginnt das Ausfüllen wieder');
+  await page.keyboard.type('Ulm');
+  await page.keyboard.press('Tab');
+  assert.equal(await text5(page), 'Ort Ulm Plz {{?Plz}}');
+  assert.equal(await sel5(page), '{{?Plz}}', 'Tab geht von dort weiter');
+  // 6. Fortsetzen nach Esc
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Tab'); // beendet: Tab verlässt das Textfeld
+  assert.notEqual(await page.evaluate(() => document.activeElement.id), 'b5', 'nach Esc springt Tab nicht mehr');
+  await clickAt(page, (await text5(page)).indexOf('{{?Plz}}') + 3);
+  assert.equal(await sel5(page), '{{?Plz}}', 'Klick nach Esc beginnt wieder');
+  await page.keyboard.type('8000');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await text5(page), 'Ort Ulm Plz 8000', 'Umschalt+Tab füllt den Wert ein und bleibt im Text');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'b5');
+  part('Fortsetzen: Klick in einen Platzhalter nach Enter im Feld und nach Esc, Tab und Umschalt+Tab gehen weiter');
+  await page.close();
+
+  // 7. Datumsauswahl: nach «>» oder mit Datum als Vorgabe
+  page = await open(browser);
+  const today = await page.evaluate(() => { const d = new Date(); return [d.getFullYear(), d.getMonth() + 1, d.getDate()].map((n, i) => String(n).padStart(i ? 2 : 4, '0')).join('-'); });
+  await hostEditor(page, { value: 'Offerte >{{?Frist}} Mail {{?Datum: 15.12.2026}} Name {{?Name}} Ende >{{?Spaet: 1.2.2027 14:30}}', keep: true });
+  assert.equal(await dpVisible(page), true, 'nach «>» öffnet die Auswahl');
+  assert.equal(await dpDay(page), today, 'ohne Vorgabe: heute');
+  await page.keyboard.press('Enter'); // Enter in der Auswahl: das Datum füllt den Platzhalter
+  assert.equal(await dpVisible(page), false);
+  const [d, m, y] = today.split('-').reverse();
+  assert.ok((await text5(page)).startsWith(`Offerte >${d}.${m}.${y} Mail`), await text5(page));
+  await page.keyboard.press('Tab');
+  assert.ok((await text5(page)).includes(`>{{?Frist: ${d}.${m}.${y}}}`), 'ausgefüllt und behalten: ' + (await text5(page)));
+  assert.equal(await dpVisible(page), true, 'ein Datum als Vorgabe öffnet sie ebenfalls');
+  assert.equal(await dpDay(page), '2026-12-15', 'die Vorgabe ist vorgewählt');
+  await page.click('#eb5 .dp button[data-iso="2026-12-20"]'); // Klick: füllt, das Ausfüllen geht weiter
+  assert.equal(await dpVisible(page), false);
+  assert.ok((await text5(page)).includes('Mail {{?Datum: 20.12.2026}} Name'), await text5(page));
+  await page.keyboard.press('Tab');
+  assert.ok((await text5(page)).includes('Mail {{?Datum: 20.12.2026}} Name'));
+  assert.equal(await sel5(page), '{{?Name}}', 'danach springt Tab weiter, ohne Auswahl für einen Namen');
+  assert.equal(await dpVisible(page), false);
+  part('Datumsauswahl: nach «>» und mit Datum als Vorgabe; Enter und Klick füllen, Tab geht weiter');
+
+  await page.keyboard.press('Tab'); // Name offen gelassen, weiter zu «Spaet»
+  assert.equal(await dpVisible(page), true);
+  assert.equal(await dpDay(page), '2027-02-01', 'Vorgabe mit Uhrzeit');
+  assert.equal(await page.$eval('#eb5 .dp-time input', i => i.value), '14:30');
+  await page.keyboard.press('Escape'); // erstes Esc: nur die Auswahl
+  assert.equal(await dpVisible(page), false);
+  await page.keyboard.press('Shift+Tab'); // das Ausfüllen läuft noch: zurück zu Name
+  assert.equal(await sel5(page), '{{?Name}}', 'nach dem ersten Esc läuft das Ausfüllen weiter');
+  await page.keyboard.press('Shift+Tab'); // zurück zu Datum: die Auswahl öffnet wieder
+  assert.equal(await dpVisible(page), true);
+  await page.keyboard.press('Tab'); // bei offener Auswahl springt Tab weiter, statt durch ihre Bereiche zu gehen
+  assert.equal(await sel5(page), '{{?Name}}');
+  assert.equal(await dpVisible(page), false);
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape'); // zweites Esc beendet das Ausfüllen
+  await page.keyboard.press('Tab');
+  assert.notEqual(await page.evaluate(() => document.activeElement.id), 'b5', 'das zweite Esc beendet das Ausfüllen');
+  // Klick in einen Platzhalter nach «>»: die Auswahl öffnet
+  const at = (await text5(page)).indexOf('{{?Spaet');
+  await clickAt(page, at + 4);
+  assert.equal(await dpVisible(page), true, 'ein Klick in den Platzhalter öffnet die Auswahl');
+  part('Datumsauswahl: erstes Esc schliesst nur sie, zweites beendet das Ausfüllen, Klick und Umschalt+Tab öffnen sie');
+
+  // Tippen ersetzt den Wert wie bisher, der Kalender folgt
+  await page.close();
+  page = await open(browser);
+  await hostEditor(page, { value: 'Bis >{{?Frist}}', keep: false });
+  await page.keyboard.type('5.1.2027');
+  assert.equal(await text5(page), 'Bis >5.1.2027');
+  assert.equal(await dpDay(page), '2027-01-05', 'der Kalender folgt dem Getippten');
+  await page.keyboard.type('x');
+  assert.equal(await dpVisible(page), false, 'ein anderes Zeichen schliesst die Auswahl');
+  await page.keyboard.press('Tab');
+  assert.deepEqual((await fills(page)).pop(), ['Frist', '5.1.2027x', false, false]);
+  part('Datumsauswahl: Tippen ersetzt den Wert, der Kalender folgt, andere Zeichen schliessen sie');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+}
+
 suite('Editor-Test', [
   { name: 'Grundlagen: Aufbau, Darstellungen, Toolleiste, Tasten, Aufgaben in der Vorschau, Speichern', run: runBasics },
   { name: 'Listen unter dem Cursor: @kürzel, [[Verweise]], Datumsauswahl, Tabellen, Platzhalter', run: runPopups },
   { name: 'Rückrufe des Gastgebers: Bilder, Erweiterungen, Schreibschutz, Konflikt', run: runHostHooks },
   { name: 'Für NoNotes v4.0.0: Feld vor dem Text bei Platzhaltern, Kennungen, refresh, selectLine, Hinweise mit Art', run: runHostField },
   { name: 'v1.1.0: afterRender, Verweisziele, onMode mit remember, storagePrefix, Platzhalterwörter, readOnlyTools', run: runV11 },
+  { name: 'v1.2.0: Enter im Platzhalter, Enter im Feld des Gastgebers, Fortsetzen, Datumsauswahl bei Fristen', run: runV12 },
   { name: 'Texte: Englisch mit Ersetzung durch den Gastgeber', run: runLabels },
 ], { browser: true });
