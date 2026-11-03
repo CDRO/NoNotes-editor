@@ -71,6 +71,15 @@ const ed = NoNotesEditor.create(document.getElementById('host'), {
 ed.get(); ed.set('Neu'); ed.mode('preview'); ed.insert('Liebe {{?Name}}'); await ed.flush();
 ```
 
+### Platzhalter ausfüllen (Tasten)
+
+`ed.insert('Liebe {{?Name}}')` wählt den ersten Platzhalter. **Tab** / **Umschalt+Tab** springen zum nächsten / vorigen, **Enter** ist eine
+neue Zeile im Wert (ein Wert über mehrere Zeilen wird als Text geschrieben, auch mit «behalten»; `onFill` meldet es mit `keep = false`),
+**Esc** beendet das Ausfüllen. Im Eingabefeld des Gastgebers (`placeholders.field`) bestätigt Enter den Wert und beendet das Ausfüllen.
+Ein Klick in einen übrigen Platzhalter beginnt es wieder, auch nach Esc. Steht der Platzhalter nach « >» (Frist) oder hat er ein Datum als
+Vorgabe, öffnet die Datumsauswahl (Klick oder Enter füllt ihn, Tab geht weiter; das erste Esc schliesst nur die Auswahl). Mehr in
+[docs/DESIGN.md](docs/DESIGN.md) §4b.
+
 Ohne DOM (Node, vm-Kontext mit `window` = Kontext) laufen `labels.js`, die Sprachdateien und die Engine (`require('nonotes-editor').engine`).
 
 ## Entwickeln

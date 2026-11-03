@@ -1,7 +1,7 @@
 /* NoNotes – ausfüllbare Platzhalter in Vorlagen (v2.12.0, Beschluss 2026-10-27).
    Neben den automatischen Platzhaltern ({{datum}} …, templates.js) gibt es solche, die man beim Einfügen selbst ausfüllt:
 
-     {{?Kunde}}              offen: beim Einfügen ausgewählt, Tippen ersetzt ihn, Tab springt zum nächsten
+     {{?Kunde}}              offen: beim Einfügen ausgewählt, Tippen ersetzt ihn, Tab springt zum nächsten, Enter ist eine neue Zeile im Wert
      {{?Kunde: Firma AG}}    ausgefüllt und stehen gelassen (Einstellung «Platzhalter behalten»), oder in einer Vorlage ein Vorschlag
 
    Gleiche Namen meinen dasselbe: einmal ausgefüllt, steht der Wert überall (auch im Titel und in den Unternotizen der Vorlage).

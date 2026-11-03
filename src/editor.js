@@ -599,15 +599,17 @@
       if (!datePick && global.NoNotesDatePicker) {
         datePick = global.NoNotesDatePicker.create(body, {
           onPick: value => insertPickedDate(value),
-          onClose: () => { st.dp = null; },
+          onClose: () => closeDatePicker(),
           refocus: () => ta.focus(),
         });
       }
       return datePick;
     }
     function closeDatePicker() {
+      const was = st.dp && st.dp.ph;
       st.dp = null;
       if (datePick) datePick.close();
+      if (was) restorePhHint(); // die Beschreibung war für die Dauer der Auswahl verborgen
     }
     function placeDatePicker() {
       if (st.dp && datePick && datePick.isOpen()) placePopupAt(datePick.el, st.dp.start);
@@ -637,6 +639,15 @@
       if (!dp) return;
       const text = Dates.toText(value);
       if (!text) return;
+      if (dp.ph) { // Platzhalter: das Datum wird sein Wert, das Ausfüllen geht weiter (Tab springt zum nächsten)
+        const f = st.ph && st.ph.field;
+        if (!f || f.outer) return;
+        const cur = ta.value;
+        const caret = f.start + text.length;
+        applyEdit({ text: cur.slice(0, f.start) + text + cur.slice(cur.length - f.tail), selStart: caret, selEnd: caret });
+        restorePhHint();
+        return;
+      }
       let v = ta.value.slice(0, dp.start) + '>' + text + ta.value.slice(dp.end);
       let caret = dp.start + 1 + text.length;
       const l = lineAround(v, dp.start);
@@ -653,6 +664,14 @@
       if (!global.NoNotesDatePicker || st.readOnly || o.dates === false) return;
       const v = ta.value;
       const caret = ta.selectionStart || 0;
+      if (st.dp && st.dp.ph) { // Platzhalter: Tippen ersetzt den Wert, der Kalender folgt Ziffern, «.» und «-»
+        const f = st.ph && st.ph.field;
+        const typed = f && !f.outer ? v.slice(f.start, v.length - f.tail) : null;
+        if (typed == null || !/^[\d.\-]*$/.test(typed)) { closeDatePicker(); return; }
+        datePicker().follow(typed);
+        placeDatePicker();
+        return;
+      }
       if (st.dp) {
         const typed = v.slice(st.dp.start + 1, caret);
         if (v[st.dp.start] !== '>' || caret <= st.dp.start || !/^[\d.\-]*$/.test(typed)) { closeDatePicker(); return; }
@@ -1395,7 +1414,7 @@
     // ---------- Ausfüllbare Platzhalter (v2.12.0) ----------
 
     // Ein Feld des Gastgebers vor dem Text (in NoNotes der Titel, placeholders.field) macht mit: seine offenen Platzhalter kommen zuerst,
-    // Tab und Enter springen von dort in den Text, Umschalt+Tab aus dem ersten Platzhalter des Texts zurück; gleiche Namen werden in
+    // Tab springt von dort in den Text (Enter bestätigt und beendet), Umschalt+Tab aus dem ersten Platzhalter des Texts zurück; gleiche Namen werden in
     // beiden ausgefüllt (im Feld immer als Text, ohne «behalten»).
     const phField = (o.placeholders && o.placeholders.field) || null;
     const fieldText = () => (phField ? phField.value : '');
@@ -1403,8 +1422,8 @@
     const outsideText = () => [fieldText(), o.placeholders && o.placeholders.extraText ? o.placeholders.extraText() : ''].filter(Boolean).join('\n');
     const openInField = () => (phField ? PH.scan(phField.value).find(p => p.value == null) || null : null);
     /** Gleiche Namen ausserhalb (Feld, weitere Texte des Gastgebers) füllt placeholders.onFill(name, value, keep, { field, data }). */
-    const notifyFill = (name, value, fromField) => {
-      if (o.placeholders && o.placeholders.onFill) o.placeholders.onFill(name, value, st.ph ? st.ph.keep : false, { field: !!fromField, data: st.ph ? st.ph.data : undefined });
+    const notifyFill = (name, value, fromField, kept) => {
+      if (o.placeholders && o.placeholders.onFill) o.placeholders.onFill(name, value, kept == null ? (st.ph ? st.ph.keep : false) : kept, { field: !!fromField, data: st.ph ? st.ph.data : undefined });
     };
 
     async function keepPlaceholders() {
@@ -1448,14 +1467,42 @@
     function selectField(tok, select) {
       const ph = st.ph;
       if (!ph || !tok) return;
+      if (st.dp) closeDatePicker();
       const v = ta.value;
       const open = tok.value == null;
       const a = open ? tok.start : tok.valueStart;
       const b = open ? tok.end : tok.valueEnd;
       if (document.activeElement !== ta) ta.focus();
       if (select || open) { ta.setSelectionRange(a, b); scrollTextTo(a); }
-      ph.field = { name: tok.name, start: a, tail: v.length - b, open, token: v.slice(tok.start, tok.end), original: tok.value };
+      ph.field = { name: tok.name, start: a, tail: v.length - b, open, token: v.slice(tok.start, tok.end), original: tok.value, tokStart: tok.start, tokTail: v.length - tok.end };
       showPhHint(tok.name, a, b);
+      openPhDate(tok, v);
+    }
+
+    /** Ein Platzhalter nach «>» (Frist) oder mit einem Datum als Vorgabe (alles, was dates.js als Termin kennt) öffnet die Datumsauswahl;
+     *  vorgewählt: die Vorgabe, sonst heute. Die Wahl setzt den Wert (insertPickedDate), Tab springt weiter, das erste Esc schliesst nur die Auswahl. */
+    function openPhDate(tok, v) {
+      const p = global.NoNotesDatePicker && o.dates !== false && !st.readOnly ? datePicker() : null;
+      if (!p) return;
+      const after = /(?:^|\s)>$/.test(v.slice(0, tok.start));
+      let given = null;
+      if (tok.value != null) {
+        const d = Dates.tail('>' + tok.value);
+        if (d.dates.length === 1 && d.dates[0].iso && !d.text) given = d.dates[0].iso;
+      }
+      if (!after && !given) return;
+      const f = st.ph.field;
+      closeMentionPopup();
+      hidePhHint(); // die Auswahl steht an derselben Stelle
+      st.dp = { ph: true, start: f.start, end: v.length - f.tail };
+      p.open(given ? Dates.datePart(given) : null, given ? Dates.timePart(given) || '' : '');
+      placeDatePicker();
+    }
+
+    /** Die Beschreibung des gewählten Platzhalters wieder zeigen (nach der Datumsauswahl). */
+    function restorePhHint() {
+      const f = st.ph && st.ph.field;
+      if (f && !f.outer) showPhHint(f.name, f.start, ta.value.length - f.tail);
     }
 
     /** Wählt einen offenen Platzhalter im Feld des Gastgebers ganz aus. */
@@ -1501,11 +1548,15 @@
       const end = v.length - f.tail;
       if (end < f.start) return null;
       const typed = v.slice(f.start, end);
+      const multi = /\n/.test(typed); // ein Wert über mehrere Zeilen: Text, nie {{?Name: …}} (das ist auf eine Zeile beschränkt)
       let text = v;
       let cut = null;
       if (f.open) {
         if (typed === f.token) return { start: f.start, end, name: f.name }; // übersprungen: bleibt offen
-        if (ph.keep) cut = { start: f.start, end, len: PH.token(f.name, typed).length, repl: PH.token(f.name, typed) };
+        if (ph.keep && !multi) cut = { start: f.start, end, len: PH.token(f.name, typed).length, repl: PH.token(f.name, typed) };
+      } else if (multi) {
+        const tokEnd = Math.max(end, v.length - f.tokTail);
+        cut = { start: f.tokStart, end: tokEnd, len: typed.length, repl: typed }; // der ganze Platzhalter wird der Text
       } else if (!ph.keep) {
         if (typed === f.original) return { start: f.start, end, name: f.name };
         const tok = PH.at(v, f.start);
@@ -1515,15 +1566,13 @@
       const map1 = pos => (cut && pos >= cut.end ? pos + cut.len - (cut.end - cut.start) : pos);
       let fStart = cut ? cut.start : f.start;
       let fEnd = cut ? cut.start + cut.len : end;
-      let r = { text, edits: [] };
-      if (!/\n/.test(typed)) {
-        r = fillName(text, f.name, typed, ph.keep);
-        if (phField) {
-          const fv = PH.flatten(fillName(phField.value, f.name, typed, false).text, { open: n => `{{?${n}}}` });
-          if (fv !== phField.value) phField.value = fv;
-        }
-        notifyFill(f.name, typed, false); // gleiche Namen beim Gastgeber, vor dem Aufräumen der Beschreibungen
+      const kept = ph.keep && !multi;
+      const r = fillName(text, f.name, typed, kept);
+      if (phField) {
+        const fv = PH.flatten(fillName(phField.value, f.name, typed.replace(/\s*\n\s*/g, ' ').trim(), false).text, { open: n => `{{?${n}}}` });
+        if (fv !== phField.value) phField.value = fv;
       }
+      notifyFill(f.name, typed, false, kept); // gleiche Namen beim Gastgeber, vor dem Aufräumen der Beschreibungen; kept = false: als Text geschrieben
       const map2 = pos => shiftPos(pos, r.edits);
       fStart = map2(fStart);
       fEnd = map2(fEnd);
@@ -1604,14 +1653,24 @@
       hidePhHint();
     }
 
-    /** Tasten beim Ausfüllen: Tab, Umschalt+Tab, Esc (und Enter mit «behalten»: der Wert bleibt auf einer Zeile). */
+    /** Tasten beim Ausfüllen: Tab, Umschalt+Tab, Esc; Enter ist eine neue Zeile im Wert (v1.2.0). */
     function handlePhKey(e) {
       const ph = st.ph;
       if (!ph || e.ctrlKey || e.metaKey || e.altKey) return false;
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && ph.keep && ph.field)) {
+      if (e.key === 'Tab') {
         e.preventDefault();
         e.stopPropagation();
-        phJump(e.key === 'Tab' && e.shiftKey ? -1 : 1);
+        phJump(e.shiftKey ? -1 : 1);
+        return true;
+      }
+      if (e.key === 'Enter' && ph.field && !ph.field.outer) { // eine neue Zeile im Wert (kein Sprung, keine Fortsetzung von Listen und Tabellen)
+        e.preventDefault();
+        e.stopPropagation();
+        const v = ta.value;
+        const s0 = ta.selectionStart || 0, s1 = ta.selectionEnd || s0;
+        let ok = false;
+        try { ok = !!(document.execCommand && document.execCommand('insertText', false, '\n')); } catch (err) { ok = false; }
+        if (!ok || ta.value === v) applyEdit({ text: v.slice(0, s0) + '\n' + v.slice(s1), selStart: s0 + 1, selEnd: s0 + 1 });
         return true;
       }
       if (e.key === 'Escape') {
@@ -1698,6 +1757,13 @@
     function onTextKeydown(e) {
       const mod = e.ctrlKey || e.metaKey;
       if (e.isComposing || ta.readOnly) return;
+      if (st.dp && st.dp.ph && e.key === 'Tab' && !mod && !e.altKey) { // Datumsauswahl eines Platzhalters: Tab springt weiter wie sonst
+        e.preventDefault();
+        e.stopPropagation();
+        closeDatePicker();
+        phJump(e.shiftKey ? -1 : 1);
+        return;
+      }
       if (st.dp && datePick && datePick.isOpen() && datePick.key(e)) { e.preventDefault(); e.stopPropagation(); return; }
       if (mod && e.key === ' ' && !e.shiftKey && !e.altKey && openDateAtCaret()) { e.preventDefault(); return; }
       if (st.wiki && handleWikiKey(e)) return;
@@ -1819,12 +1885,13 @@
         o.showMenu(items, r.left, r.bottom + 4);
       });
     }
-    // Tasten im Feld des Gastgebers, solange dort ein Platzhalter gewählt ist: Tab und Enter in den Text, Umschalt+Tab zurück, Esc beendet
+    // Tasten im Feld des Gastgebers, solange dort ein Platzhalter gewählt ist: Tab in den Text, Umschalt+Tab zurück, Enter bestätigt den Wert
+    // und beendet das Ausfüllen (v1.2.0), Esc beendet
     const onFieldKeydown = e => {
       const ph = st.ph;
       if (!ph || !ph.field || !ph.field.outer) return;
-      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); phJump(e.shiftKey ? -1 : 1); }
-      else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); leaveField(); endPlaceholders(); }
+      if (e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); phJump(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); leaveField(); endPlaceholders(); }
     };
     if (phField) phField.addEventListener('keydown', onFieldKeydown);
     root.addEventListener('keydown', onRootKeydown);
