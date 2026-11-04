@@ -560,6 +560,150 @@ async function runV12(browser, part) {
   await page.close();
 }
 
+/* v1.3.0: Fragen und Entscheide einzeln abschaltbar (questionKinds): Toolleiste, Tasten, Vorschau, «Beantworten», Zähler, Umschalten
+   später (setQuestionKinds), Text unverändert, Vorgabe unverändert. */
+async function runV13(browser, part) {
+  const TEXT = '? Frage >15.10.2026\n\n?! Entscheid\n\n- ?! Liste\n\nfrei';
+  const make = (page, opts, value) => page.evaluate(([o, v]) => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    window.k = NoNotesEditor.create(host, Object.assign({ remember: false, mode: 'split', counts: true, answers: true,
+      ids: { body: 'kb', preview: 'kp', questionBtn: 'kq', answerBtn: 'ka', decisionBtn: 'kd', toolbar: 'kt' } }, o));
+    window.k.set(v);
+    return window.k.renderPreview();
+  }, [opts, value == null ? TEXT : value]);
+  const shown = (page, sel) => page.$eval(sel, b => !b.hidden && getComputedStyle(b).display !== 'none');
+  const bar = page => Promise.all(['#kq', '#ka', '#kd'].map(sel => shown(page, sel)));
+  const val = page => page.inputValue('#kb');
+  const cards = page => page.$$eval('#kp .md-q', n => n.map(c => (c.classList.contains('md-decision') ? 'd' : 'q') + (c.classList.contains('open') ? '+' : '-')).join(' '));
+  const counts = page => page.evaluate(() => window.k.el.dataset.counts);
+  const footer = page => page.evaluate(() => window.k.el.querySelector('.nn-counts').textContent);
+  const key = async (page, combo) => {
+    await page.focus('#kb');
+    await page.evaluate(() => { const t = document.getElementById('kb'); t.setSelectionRange(t.value.length, t.value.length); });
+    await page.keyboard.press(combo);
+  };
+  const waitCards = (page, n) => page.waitForFunction(c => document.querySelectorAll('#kp .md-q').length === c, n);
+
+  // 1. Vorgabe: alles da, alles wie bis v1.2.0 (auch im Editor der Testseite)
+  let page = await open(browser);
+  assert.deepEqual(await page.evaluate(() => window.ed.questionKinds()), { questions: true, decisions: true });
+  for (const cmd of ['question', 'answer', 'decision']) assert.ok(await shown(page, `#mdToolbar [data-cmd="${cmd}"]`), cmd);
+  await make(page, {});
+  assert.deepEqual(await bar(page), [true, true, true]);
+  assert.equal(await cards(page), 'q+ d+ d+');
+  assert.equal(await counts(page), '0/1/2');
+  assert.equal(await footer(page), '1 offene Frage · 2 offene Entscheide');
+  part('Vorgabe: Knöpfe, Vorschau, Zähler');
+
+  // 2. Entscheide aus
+  await page.close();
+  page = await open(browser);
+  await make(page, { questionKinds: { questions: true, decisions: false } });
+  assert.deepEqual(await bar(page), [true, true, false], 'Entscheid-Knopf weg, Antwort bleibt');
+  assert.deepEqual(await page.evaluate(() => window.k.questionKinds()), { questions: true, decisions: false });
+  assert.equal(await cards(page), 'q+', 'nur die Frage ist ein Kasten');
+  assert.equal(await counts(page), '0/1/0', 'Zähler zählt keine Entscheide');
+  assert.equal(await footer(page), '1 offene Frage');
+  const shownText = await page.$eval('#kp', p => p.textContent);
+  assert.ok(shownText.includes('?! Entscheid') && shownText.includes('?! Liste'), 'als Text sichtbar');
+  assert.equal(await page.$$eval('#kp .md-decision', n => n.length), 0);
+  assert.equal(await page.$$eval('#kp .md-mark', n => n.length), 1, 'nur das Abzeichen der Frage');
+  assert.equal(await page.$$eval('#kp .md-q-answer', n => n.map(b => b.textContent).join()), 'Beantworten', 'kein «Entscheiden»');
+  assert.equal(await page.$$eval('#kp .md-due', n => n.length), 1, 'Frist der Frage');
+  part('Entscheide aus: Knopf, Vorschau, Beantworten, Zähler');
+
+  // 3. Tasten
+  await page.evaluate(() => window.k.set('Zeile'));
+  await key(page, 'Control+Shift+D');
+  assert.equal(await val(page), 'Zeile', 'Ctrl+Shift+D tut nichts');
+  await page.evaluate(() => window.k.runCommand('decision'));
+  assert.equal(await val(page), 'Zeile', 'runCommand tut nichts');
+  await key(page, 'Control+Shift+F');
+  assert.equal(await val(page), '? Zeile', 'Ctrl+Shift+F wirkt');
+  await key(page, 'Control+Shift+A');
+  assert.equal(await val(page), '! Zeile', 'Antwort wirkt, solange eine Art gilt');
+  part('Entscheide aus: Tasten');
+
+  // 4. Fragen aus
+  await page.close();
+  page = await open(browser);
+  await make(page, { questionKinds: { questions: false } });
+  assert.deepEqual(await bar(page), [false, true, true]);
+  assert.equal(await cards(page), 'd+ d+');
+  assert.equal(await counts(page), '0/0/2');
+  assert.equal(await page.$$eval('#kp .md-q-answer', n => n.map(b => b.textContent).join()), 'Entscheiden,Entscheiden');
+  await page.evaluate(() => window.k.set('Zeile'));
+  await key(page, 'Control+Shift+F');
+  assert.equal(await val(page), 'Zeile', 'Ctrl+Shift+F tut nichts');
+  await key(page, 'Control+Shift+D');
+  assert.equal(await val(page), '?! Zeile');
+  part('Fragen aus');
+
+  // 5. beide aus
+  await page.close();
+  page = await open(browser);
+  await make(page, { questionKinds: false }, TEXT + '\n\n! lose');
+  assert.deepEqual(await bar(page), [false, false, false]);
+  assert.equal(await page.evaluate(() => [...window.k.el.querySelectorAll('.tb-sep')].filter(s => getComputedStyle(s).display !== 'none').length), 3, 'Trennstrich vor den drei Knöpfen weg');
+  assert.equal(await cards(page), '');
+  assert.equal(await page.$$eval('#kp .md-a, #kp .md-q, #kp .md-due', n => n.length), 0);
+  assert.equal(await counts(page), '0/0/0');
+  assert.equal(await footer(page), '');
+  await page.evaluate(() => window.k.set('Zeile'));
+  for (const c of ['F', 'A', 'D']) { await key(page, 'Control+Shift+' + c); assert.equal(await val(page), 'Zeile', `Ctrl+Shift+${c} tut nichts`); }
+  part('beide aus');
+
+  // 6. Später umschalten: gleiche Instanz, der Text bleibt, Vorschau, Zähler und Knöpfe folgen
+  await page.evaluate(() => window.k.set('? Frage\n\n?! Entscheid\n\n?!```\nBlock\n```\n!! ok'));
+  const before = await val(page);
+  assert.deepEqual(await page.evaluate(() => window.k.setQuestionKinds({ decisions: true })), { questions: false, decisions: true });
+  assert.deepEqual(await bar(page), [false, true, true]);
+  await waitCards(page, 2);
+  assert.equal(await cards(page), 'd+ d-', 'Entscheid und Block');
+  assert.equal(await counts(page), '0/0/1');
+  assert.deepEqual(await page.evaluate(() => window.k.setQuestionKinds({ questions: true })), { questions: true, decisions: true }, 'nur die genannte Art ändert sich');
+  await waitCards(page, 3);
+  assert.equal(await counts(page), '0/1/1');
+  assert.deepEqual(await page.evaluate(() => window.k.counts()), { tasks: 0, questions: 1, decisions: 1 });
+  assert.equal(await val(page), before, 'der Text blieb in allen Stellungen gleich');
+  await page.evaluate(() => window.k.setQuestionKinds(false));
+  assert.deepEqual(await page.evaluate(() => window.k.questionKinds()), { questions: false, decisions: false });
+  await waitCards(page, 0);
+  assert.equal(await val(page), before);
+  await page.evaluate(() => window.k.setQuestionKinds(true));
+  await waitCards(page, 3);
+  part('später umschalten: setQuestionKinds, Text unverändert');
+
+  // 7. Block: ohne Entscheide ist «?!```» kein Block
+  await page.evaluate(() => { window.k.set('?!``` Titel\nTeil\n```\n!! ok\n\nNach'); window.k.setQuestionKinds({ decisions: false }); });
+  await waitCards(page, 0);
+  assert.equal(await page.$$eval('#kp .md-q-block', n => n.length), 0);
+  assert.equal(await counts(page), '0/0/0');
+  await page.evaluate(() => window.k.setQuestionKinds({ decisions: true }));
+  await waitCards(page, 1);
+  assert.equal(await page.$$eval('#kp .md-q-block', n => n.length), 1);
+  part('Block');
+
+  // 8. «Beantworten» bei abgeschaltetem Entscheid: die Antwort steht unter der Frage, der Rest bleibt
+  await page.evaluate(() => { window.k.set('? Frage\n\n?! Entscheid'); window.k.setQuestionKinds({ decisions: false }); });
+  await waitCards(page, 1);
+  await page.click('#kp .md-q-answer');
+  await page.fill('#kp textarea', 'Ja');
+  await page.keyboard.press('Control+Enter');
+  assert.equal(await val(page), '? Frage\n! Ja\n\n?! Entscheid');
+  part('Beantworten bei abgeschaltetem Entscheid');
+
+  // 9. Tabellenfeld: die abgeschaltete Art ist Text, der Text bleibt
+  await page.evaluate(() => { window.k.set('| a | b |\n|---|---|\n| ? Frage<br>! ja | ?! Entscheid |'); });
+  await page.waitForFunction(() => document.querySelectorAll('#kp .md-cell-q').length === 1);
+  assert.equal(await page.$$eval('#kp .md-cell-q.md-decision', n => n.length), 0);
+  assert.equal(await val(page), '| a | b |\n|---|---|\n| ? Frage<br>! ja | ?! Entscheid |');
+  part('Tabellenfeld');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+}
+
 suite('Editor-Test', [
   { name: 'Grundlagen: Aufbau, Darstellungen, Toolleiste, Tasten, Aufgaben in der Vorschau, Speichern', run: runBasics },
   { name: 'Listen unter dem Cursor: @kürzel, [[Verweise]], Datumsauswahl, Tabellen, Platzhalter', run: runPopups },
@@ -567,5 +711,6 @@ suite('Editor-Test', [
   { name: 'Für NoNotes v4.0.0: Feld vor dem Text bei Platzhaltern, Kennungen, refresh, selectLine, Hinweise mit Art', run: runHostField },
   { name: 'v1.1.0: afterRender, Verweisziele, onMode mit remember, storagePrefix, Platzhalterwörter, readOnlyTools', run: runV11 },
   { name: 'v1.2.0: Enter im Platzhalter, Enter im Feld des Gastgebers, Fortsetzen, Datumsauswahl bei Fristen', run: runV12 },
+  { name: 'v1.3.0: Fragen und Entscheide einzeln abschaltbar (Toolleiste, Tasten, Vorschau, Zähler, später umschalten)', run: runV13 },
   { name: 'Texte: Englisch mit Ersetzung durch den Gastgeber', run: runLabels },
 ], { browser: true });

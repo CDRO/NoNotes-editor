@@ -30,9 +30,13 @@
        actions: [{ id, label, title, run(ed) }],                                      weitere Knöpfe neben der Toolleiste
        showMenu(items, x, y), confirm(text, { danger, yes }) → Promise<boolean>, hint(text), onError(e),
        counts: true, answers: true, modernizeDates: true, entity,                     Zähler, «Beantworten» in der Vorschau, alte «@Datum», Angaben für Erweiterungen
+       questionKinds: { questions: true, decisions: true },                           Fragen «? …» / Entscheide «?! …» für diesen Editor ein- oder ausschalten (v1.3.0;
+                                                                                      false: beide aus). Aus: kein Knopf, keine Taste, in der Vorschau und den Zählern
+                                                                                      gewöhnlicher Text; der Text selbst bleibt unberührt
      })
      → { el, textarea, preview, get(), set(text, updatedAt), focus(), setReadOnly(b), isReadOnly(), mode(name?), insert(text, { keep }),
          insertAtCursor(text), selection(), replaceSelection(text), applyEdit({ text, selStart, selEnd }), runCommand(cmd), counts(),
+         questionKinds(), setQuestionKinds({ questions, decisions }),
          isDirty(), flush(), renderPreview(), renderAttachments(), addAttachments(files), forgetAttachment(id?), fillPlaceholders({ keep, data }),
          startPlaceholders({ start, end, keep, data }), updateTableMeta(line, fn), selectLine(lineIndex), refresh(), refreshExtensions(), isWritable(), closePopups(),
          destroy() }
@@ -276,7 +280,12 @@
       mention: null, mentionSeq: 0, wiki: null, wikiSeq: 0, wikiData: null, dp: null,
       gridPrev: null, gridApplying: false, ph: null, modernizing: false,
       attUrls: new Map(), loadedEmbeds: new Set(), previewed: null,
+      kinds: Q.kindsOf({ questionKinds: o.questionKinds }),                        // v1.3.0: { question, decision }
     };
+    const kindsOption = () => ({ questions: st.kinds.question, decisions: st.kinds.decision });
+    /** Gilt der Befehl der Toolleiste in diesem Editor (Fragen und Entscheide abschaltbar, die Antwort bleibt, solange eine Art gilt)? */
+    const commandOn = cmd => (cmd === 'question' ? st.kinds.question : cmd === 'decision' ? st.kinds.decision
+      : cmd === 'answer' ? st.kinds.question || st.kinds.decision : true);
 
     // ---------- Aufbau (wie der Editor in NoNotes index.html) ----------
 
@@ -291,7 +300,13 @@
       TOOLS.map(x => (x === 'sep' ? h('span', { className: 'tb-sep', 'aria-hidden': 'true' })
         : h('button', { type: 'button', id: (x[3] && ids[x[3]]) || null, dataset: x[0] === 'image' ? null : { cmd: x[0] }, className: x[0] === 'image' ? 'tb-image' : null,
           title: t(x[1]), 'aria-label': t(x[2]), // i18n-dynamic: TOOLS
-          'aria-haspopup': x[0] === 'table' ? 'dialog' : null, hidden: x[0] === 'image' && !o.attachments }, ICONS[x[0]]()))));
+          'aria-haspopup': x[0] === 'table' ? 'dialog' : null, hidden: (x[0] === 'image' && !o.attachments) || !commandOn(x[0]) }, ICONS[x[0]]()))));
+    const kindSep = toolbar.querySelectorAll('.tb-sep')[3];   // vor Frage, Antwort und Entscheid: weg, wenn keiner der drei da ist
+    const syncKindTools = () => {
+      for (const cmd of ['question', 'answer', 'decision']) toolbar.querySelector(`[data-cmd="${cmd}"]`).hidden = !commandOn(cmd);
+      if (kindSep) kindSep.hidden = !st.kinds.question && !st.kinds.decision;
+    };
+    syncKindTools();
     const attachBtn = toolbar.querySelector('.tb-image');
     const tplBtn = o.templates && typeof o.templates.insert === 'function'
       ? h('button', { type: 'button', className: 'nn-tpl-btn', title: t('Vorlage einfügen oder diesen Text als Vorlage speichern'), 'aria-label': t('Vorlagen'), 'aria-haspopup': 'menu' }, ICONS.template())
@@ -383,7 +398,7 @@
         resolveAttachment: id => st.attUrls.get(id) || null,
         embeds: embedsOn(),
         embedLoad: embedCanLoad,
-      }, resolveRef ? { resolveRef } : {}, extra || {});
+      }, resolveRef ? { resolveRef } : {}, extra || {}, { questionKinds: kindsOption() }); // die Einstellung des Editors gilt immer
       preview.innerHTML = M.render(text, opts); // nur die Ausgabe von NoNotesMarkdown
       for (const box of preview.querySelectorAll('.md-embed')) if (st.loadedEmbeds.has(box.dataset.embed)) loadEmbed(box, false);
       if (o.answers) addAnswerButtons();
@@ -397,7 +412,7 @@
 
     function counts() {
       const text = ta.value;
-      const qs = Q.parse(text);
+      const qs = Q.parse(text, { questionKinds: kindsOption() });
       return {
         tasks: Tasks.parse(text).filter(x => !x.done).length,
         questions: qs.filter(q => q.kind !== 'decision' && !q.answer).length,
@@ -508,8 +523,24 @@
       if (st.mode !== 'edit') renderPreview();
     }
 
+    /** Fragen und Entscheide für diesen Editor ein- oder ausschalten (v1.3.0); nur die genannten Arten ändern sich, false schaltet beide
+     *  aus, true beide ein. Der Text bleibt unberührt; Toolleiste, Zähler und Vorschau folgen sofort. Gibt die Einstellung zurück. */
+    function setQuestionKinds(next) {
+      const k = typeof next === 'boolean' ? { questions: next, decisions: next } : (next || {});
+      const now = {
+        question: k.questions == null ? st.kinds.question : k.questions !== false,
+        decision: k.decisions == null ? st.kinds.decision : k.decisions !== false,
+      };
+      if (now.question === st.kinds.question && now.decision === st.kinds.decision) return kindsOption();
+      st.kinds = now;
+      syncKindTools();
+      renderCounts();
+      if (st.mode !== 'edit') renderPreview();
+      return kindsOption();
+    }
+
     function runCommand(cmd, anchor) {
-      if (st.readOnly) return;
+      if (st.readOnly || !commandOn(cmd)) return;
       if (cmd === 'table') { openTablePicker(anchor || toolbar.querySelector('[data-cmd="table"]')); return; }
       if (cmd === 'date') { insertDateAtLineEnd(); return; }
       if (cmd === 'image') { if (o.attachments) { fileInput.value = ''; fileInput.click(); } return; }
@@ -1103,7 +1134,7 @@
       }
     }
 
-    const questionAt = line => Q.parse(ta.value).find(q => q.lineIndex === line && !q.cell) || null;
+    const questionAt = line => Q.parse(ta.value, { questionKinds: kindsOption() }).find(q => q.lineIndex === line && !q.cell) || null;
 
     /** Kleines Formular in der Karte: Ctrl+Enter oder «Speichern» schreibt die Antwort (den Entscheid) unter den Eintrag. */
     function openAnswerForm(button) {
@@ -2062,6 +2093,8 @@
       applyEdit: r => { if (!st.readOnly) applyEdit(r); },
       runCommand,
       counts,
+      questionKinds: kindsOption,
+      setQuestionKinds,
       isDirty,
       flush: () => saveNow(),
       renderPreview,

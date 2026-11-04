@@ -995,6 +995,115 @@ async function runRefTargets(browser, part) {
   part('Resolver ohne Ergebnis');
 }
 
+// ============================================================
+/* Fragen und Entscheide einzeln abschaltbar (v1.3.0): questionKinds in parse, parseBlock und render; der Text bleibt, wie er ist. */
+async function runQuestionKinds(browser, part) {
+  const { NoNotesQuestions: Q, NoNotesMarkdown: M } = load();
+  const TEXT = [
+    '? Frage eins >15.10.2026', '! Antwort', '',
+    '?! Entscheid eins >15.10.2026', '!! 14.10.2026: Variante B', '',
+    '- ?! Entscheid in Liste', '- ? Frage in Liste', '',
+    '| Feld | Art |', '|---|---|', '| ? Frage im Feld<br>! ja | ?! Entscheid im Feld |',
+  ].join('\n');
+  const BLOCKS = [
+    '?``` Frageblock', 'Text', '? Unterfrage', '```', '! Antwort Frage', '',
+    '?!``` Entscheidblock', 'Text', '?! Unterentscheid', '```', '!! Antwort Entscheid',
+  ].join('\n');
+  const names = (text, opts) => Q.parse(text, opts).map(q => q.kind[0] + ':' + q.text);
+  const squash = html => html.replace(/\n/g, '');
+  const count = (html, re) => (html.match(re) || []).length;
+  const KINDS = { dec: { questionKinds: { decisions: false } }, q: { questionKinds: { questions: false } }, none: { questionKinds: false } };
+
+  // 1. Vorgabe: beide Arten, wie bis v1.2.0
+  const all = names(TEXT);
+  assert.deepEqual(all, ['q:Frage eins', 'd:Entscheid eins', 'd:Entscheid in Liste', 'q:Frage in Liste', 'q:Frage im Feld', 'd:Entscheid im Feld']);
+  for (const k of [{ questionKinds: { questions: true, decisions: true } }, { questionKinds: true }, {}, { questionKinds: {} }, { questionKinds: undefined }]) {
+    assert.deepEqual(names(TEXT, k), all, 'ausdrücklich beide oder nichts = Vorgabe');
+  }
+  assert.deepEqual(names(BLOCKS), ['q:Frageblock', 'q:Unterfrage', 'd:Entscheidblock', 'd:Unterentscheid']);
+  assert.equal(Q.parse(TEXT).find(q => q.text === 'Entscheid eins').decided, '2026-10-14');
+  assert.deepEqual(Q.kindsOf(), { question: true, decision: true });
+  part('Vorgabe: beide Arten, alle Formen');
+
+  // 2. Entscheide aus: keine Entscheide, auch nicht als Liste oder Feld; die Fragen bleiben
+  assert.deepEqual(names(TEXT, KINDS.dec), ['q:Frage eins', 'q:Frage in Liste', 'q:Frage im Feld']);
+  assert.equal(Q.parse(TEXT, KINDS.dec)[0].answer, 'Antwort');
+  // 3. Fragen aus
+  assert.deepEqual(names(TEXT, KINDS.q), ['d:Entscheid eins', 'd:Entscheid in Liste', 'd:Entscheid im Feld']);
+  assert.equal(Q.parse(TEXT, KINDS.q)[0].decided, '2026-10-14', 'Tag des Entscheids bleibt');
+  // beide aus
+  assert.deepEqual(names(TEXT, KINDS.none), []);
+  assert.deepEqual(names(TEXT, { questionKinds: { questions: false, decisions: false } }), []);
+  part('parse: Entscheide aus, Fragen aus, beide aus');
+
+  // 4. parseBlock und cellEntries
+  const lines = ['?! Neu', '!! ok', '?!``` Block', 'x', '```'];
+  assert.equal(Q.parseBlock(lines, 0, {}).kind, 'decision');
+  assert.equal(Q.parseBlock(lines, 0, KINDS.dec), null, 'Entscheid aus: kein Eintrag');
+  assert.equal(Q.parseBlock(lines, 2, KINDS.dec), null, 'Entscheid aus: auch der Block nicht');
+  assert.equal(Q.parseBlock(lines, 2, KINDS.q).block, true, 'Fragen aus: Entscheidblock bleibt');
+  assert.equal(Q.parseBlock(lines, 2, KINDS.none), null);
+  assert.equal(Q.parseBlock(['- ?! x'], 0, Object.assign({ list: true }, KINDS.dec)), null);
+  assert.equal(Q.parseBlock(['- ? x'], 0, Object.assign({ list: true }, KINDS.dec)).kind, 'question');
+  assert.equal(Q.cellEntries('| ?! a | ? b |', 2, KINDS.dec).map(e => e.text).join(), 'b');
+  assert.equal(Q.cellEntries('| ?! a | ? b |', 2).length, 2);
+  part('parseBlock und cellEntries');
+
+  // 5. Vorschau: abgeschaltete Zeilen sind gewöhnlicher Text, ohne Abzeichen, ohne Frist-Stil
+  const on = squash(M.render(TEXT));
+  assert.equal(count(on, /class="md-q(?: md-decision)? (?:open|answered)"/g), 4, 'Vorgabe: vier Kästen');
+  assert.equal(count(on, /class="md-cell-q/g), 2);
+  assert.equal(count(on, /md-due/g), 2, 'zwei Fristen');
+  const noDec = squash(M.render(TEXT, KINDS.dec));
+  assert.ok(!noDec.includes('md-decision'), 'kein Entscheid-Kasten, keine Entscheid-Zelle');
+  assert.equal(count(noDec, /class="md-q (?:open|answered)"/g), 2, 'zwei Fragen (Zeile und Liste)');
+  assert.equal(count(noDec, /class="md-cell-q/g), 1, 'im Feld nur die Frage');
+  assert.equal(count(noDec, /md-due/g), 1, 'die Frist des Entscheids ist keine mehr');
+  assert.ok(noDec.includes('?! Entscheid eins') && noDec.includes('!! 14.10.2026: Variante B') && !noDec.includes('md-a-lone') && noDec.includes('?! Entscheid im Feld'), 'der Text bleibt sichtbar');
+  assert.ok(/<li[^>]*>\?! Entscheid in Liste<\/li>/.test(noDec), 'Entscheid in Liste: gewöhnlicher Listenpunkt');
+  const noQ = squash(M.render(TEXT, KINDS.q));
+  assert.ok(!/md-q (?:open|answered)|md-cell-q (?:open|answered)/.test(noQ), 'keine Frage-Kästen');
+  assert.equal(count(noQ, /class="md-q md-decision/g), 2, 'zwei Entscheide (Zeile und Liste)');
+  assert.equal(count(noQ, /class="md-cell-q md-decision/g), 1);
+  assert.ok(/<li[^>]*>\? Frage in Liste<\/li>/.test(noQ), 'Frage in Liste: gewöhnlicher Listenpunkt');
+  assert.ok(noQ.includes('? Frage eins') && noQ.includes('? Frage im Feld'), 'der Text bleibt sichtbar');
+  part('Vorschau: abgeschaltete Art ist Text');
+
+  // 6. beide aus: nichts als Eintrag, auch lose Antworten sind Text
+  const none = squash(M.render(TEXT, KINDS.none));
+  assert.ok(!/md-q|md-a|md-mark|md-cell-q|md-due/.test(none), 'kein Eintrag, keine Antwort, keine Frist: ' + (none.match(/md-[a-z-]+/g) || []).slice(0, 5));
+  assert.ok(none.includes('! Antwort') && none.includes('!! 14.10.2026'), 'Antwortzeilen sind Text');
+  assert.ok(M.render('! allein').includes('md-a-lone'), 'Vorgabe: lose Antwort als Hinweis');
+  assert.ok(!M.render('! allein', KINDS.none).includes('md-a-lone'));
+  assert.ok(!M.render('!! allein', KINDS.dec).includes('md-a-lone') && M.render('! allein', KINDS.dec).includes('md-a-lone'), '«!!» gehört zum Entscheid, «!» zur Frage');
+  assert.ok(!M.render('! allein', KINDS.q).includes('md-a-lone') && M.render('!! allein', KINDS.q).includes('md-a-lone'));
+  part('Vorschau: beide aus');
+
+  // 7. Blöcke: eine abgeschaltete Art ist kein Block, sie wird Text (die Zeile «```» am Ende ist dann ein Codeblock)
+  const onB = squash(M.render(BLOCKS));
+  assert.equal(count(onB, /md-q-block/g), 2);
+  assert.deepEqual(names('?!``` Titel\nTeil\n```\n!! ok\n\nNach', KINDS.dec), []);
+  const offB = squash(M.render('?!``` Titel\nTeil\n```\n!! ok\n\nNach dem Block', KINDS.dec));
+  assert.ok(!offB.includes('md-q-block') && !offB.includes('md-decision') && offB.includes('Teil') && offB.includes('?!'), 'Entscheid aus: kein Block: ' + offB);
+  assert.deepEqual(names('?``` Titel\nTeil\n```\n! ok', KINDS.q), []);
+  assert.ok(!M.render('?``` Titel\nTeil\n```\n! ok', KINDS.q).includes('md-q-block'));
+  // die andere Art bleibt Block, samt ihren Unter-Einträgen; Unter-Einträge der abgeschalteten Art zählen nicht
+  const qBlock = '?``` Block\nText\n? Unterfrage\n?! Unterentscheid\n```\n! Antwort';
+  assert.deepEqual(names(qBlock), ['q:Block', 'q:Unterfrage', 'd:Unterentscheid']);
+  assert.deepEqual(names(qBlock, KINDS.dec), ['q:Block', 'q:Unterfrage']);
+  const qb = squash(M.render(qBlock, KINDS.dec));
+  assert.ok(qb.includes('md-q-block') && qb.includes('1 von 1 Unterfrage offen') && qb.includes('<p>?! Unterentscheid</p>'), 'Unterentscheid ist Text im Block, zählt nicht mit');
+  assert.ok(!/md-decision/.test(qb));
+  part('Block: abgeschaltete Art ist kein Block');
+
+  // 8. Der Text selbst wird von nichts umgeschrieben
+  const copy = TEXT + '\n' + BLOCKS;
+  for (const k of Object.values(KINDS)) { Q.parse(copy, k); M.render(copy, k); }
+  assert.equal(copy, TEXT + '\n' + BLOCKS);
+  assert.deepEqual(names(TEXT), all, 'danach wieder alles');
+  part('Text unverändert');
+}
+
 suite('Engine-Test', [
   { name: 'Texte: Katalog de/en, Übersetzer des Gastgebers, Ersetzungen gewinnen, Mehrzahl, ohne DOM', run: runLabels },
   { name: 'Toolleiste und Tasten (editing.js), Vorschläge für @kürzel (mentions.js)', run: runEditing },
@@ -1007,4 +1116,5 @@ suite('Engine-Test', [
   { name: 'Ausfüllbare Platzhalter: Erkennen, Werte, Vorschau, Druck, Beschreibungen', run: runPlaceholdersCore },
   { name: 'Termine mit «>» (v3.0.0): Schreibweise, Frist und Erinnerungen, Umschreiben alter Texte', run: runDatesV3 },
   { name: 'Verweise mit eigenen Zielen (v1.1.0): href, title, Klassen, data-*', run: runRefTargets },
+  { name: 'Fragen und Entscheide einzeln abschaltbar (v1.3.0): parse, parseBlock, render, Block, Text unverändert', run: runQuestionKinds },
 ]);

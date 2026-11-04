@@ -15,6 +15,9 @@
    In Tabellen (v2.11.0): ein Teil eines Felds (Teile trennt "<br>"), der mit "?" oder "?!" beginnt, ist ein Eintrag; die Teile direkt
    danach, die mit "!" oder "!!" beginnen, sind seine Antwort ("| ?! Lieferant @anna<br>!! 14.10.2026: Müller |").
    "@kürzel" im Titel nennt, wer antworten oder entscheiden soll, "(@kürzel)" eine Person, die wahlweise dabei ist.
+   Arten abschalten (v1.3.0): options.questionKinds = { questions: false } und/oder { decisions: false } (oder false für beide) lässt
+   "? …" mit "! …" beziehungsweise "?! …" mit "!! …" (auch als Block, in Listen und in Tabellen) in parse, parseBlock und cellEntries
+   nicht als Eintrag gelten; der Text bleibt, wie er ist. Ohne die Option gelten beide.
    Der Text bleibt die einzige Wahrheit; die Tabelle "questions" ist nur ein Index darüber. */
 (function (global) {
   'use strict';
@@ -33,6 +36,18 @@
   // "@kürzel" am Wortanfang: Buchstabe zuerst, dann Buchstaben, Ziffern, "_", "-" und "." (kein Datum, keine Mailadresse)
   const PERSON_RE = /(^|[\s(])(\(?)@(\p{L}[\p{L}\p{N}_.-]*)(\)?)/gu;
   const LEAD_DATE_RE = /^\s*(?:(\d{1,2})\.(\d{1,2})\.(\d{4})|(\d{4})-(\d{2})-(\d{2}))(?=$|\s|[:–—-])\s*(?:[:–—-]\s*)?/;
+
+  /** Welche Arten gelten (v1.3.0): options.questionKinds ist true/false (beide) oder { questions, decisions } (je false schaltet ab,
+   *  alles andere lässt die Art gelten). Ergebnis: { question, decision }. */
+  function kindsOf(options) {
+    const k = options && options.questionKinds;
+    if (k === false) return { question: false, decision: false };
+    if (!k || typeof k !== 'object') return { question: true, decision: true };
+    return { question: k.questions !== false, decision: k.decisions !== false };
+  }
+
+  /** Gilt die Art des Eintrags (decision: true bei "?!")? kinds wie von kindsOf geliefert. */
+  const allowed = (kinds, decision) => (decision ? kinds.decision : kinds.question);
 
   function normalize(text) {
     return text.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -111,9 +126,9 @@
   function leading(line) { return (/^\s*/.exec(line) || [''])[0]; }
 
   /** Einzeiliger Eintrag "? …" / "?! …" an Zeile i. */
-  function lineEntry(lines, i, limit) {
+  function lineEntry(lines, i, limit, kinds) {
     const m = QUESTION_RE.exec(lines[i]);
-    if (!m || FENCED_TEXT_RE.test(m[2])) return null;
+    if (!m || FENCED_TEXT_RE.test(m[2]) || (kinds && !allowed(kinds, !!m[1]))) return null;
     const head = heading(m[1] ? 'decision' : 'question', m[2]);
     if (!head.text) return null;
     const ans = readAnswers(lines, i + 1, limit);
@@ -121,9 +136,9 @@
   }
 
   /** Eintrag in einer Liste "- ? …" / "1. ?! …" an Zeile i; die Antwort steht eingerückt darunter. */
-  function listEntry(lines, i, limit) {
+  function listEntry(lines, i, limit, kinds) {
     const m = LIST_RE.exec(lines[i]);
-    if (!m || FENCED_TEXT_RE.test(m[4])) return null;
+    if (!m || FENCED_TEXT_RE.test(m[4]) || (kinds && !allowed(kinds, !!m[3]))) return null;
     const head = heading(m[3] ? 'decision' : 'question', m[4]);
     if (!head.text) return null;
     const ans = readAnswers(lines, i + 1, limit);
@@ -154,7 +169,8 @@
 
   /** Einträge in den Feldern einer Tabellenzeile (Zeile L): je Feld die Teile "? …" / "?! …" mit den Antwort-Teilen danach.
    *  cell: { index (Feld), part (Teil des Eintrags), end (erster Teil nach der Antwort, exklusiv) }. */
-  function cellEntries(line, cols) {
+  function cellEntries(line, cols, options) {
+    const kinds = kindsOf(options);
     const tb = global.NoNotesTables;
     if (!tb) return [];
     const byCell = new Map();
@@ -163,18 +179,18 @@
       byCell.get(p.cell).push(p);
     }
     const out = [];
-    for (const [cell, parts] of byCell) for (const e of entriesOfCell(cell, parts)) { delete e.line; out.push(e); }
+    for (const [cell, parts] of byCell) for (const e of entriesOfCell(cell, parts, kinds)) { delete e.line; out.push(e); }
     return out;
   }
 
   /** Einträge in einem Feld aus seinen Teilen ([{ text, line? }]; bei Tabellen mit Rahmen über mehrere Textzeilen): "? …" / "?! …" mit
    *  den Antwort-Teilen danach. cell: { index (das wievielte Feld seiner Textzeile), part, end }; line: Textzeile des Eintrags. */
-  function entriesOfCell(cell, parts) {
+  function entriesOfCell(cell, parts, kinds) {
     const out = [];
     const unescape = t => t.replace(/\\\|/g, '|'); // "\|" im Feld ist ein "|"
     for (let k = 0; k < parts.length; k++) {
       const m = QUESTION_RE.exec(parts[k].text);
-      if (!m || FENCED_TEXT_RE.test(m[2])) continue;
+      if (!m || FENCED_TEXT_RE.test(m[2]) || (kinds && !allowed(kinds, !!m[1]))) continue;
       const head = heading(m[1] ? 'decision' : 'question', unescape(m[2]));
       if (!head.text) continue;
       let j = k + 1;
@@ -192,7 +208,7 @@
 
   /** Mehrzeiliger Eintrag "?!``` Titel" … "```" an Zeile i, samt Unter-Einträgen und der Antwort nach dem Block; mit list auch als
    *  Listenpunkt ("- ?!``` Titel", dann list: true und die Einrückung des Texts im Listenpunkt für die Antwort). */
-  function blockEntry(lines, i, list) {
+  function blockEntry(lines, i, list, kinds) {
     let m = BLOCK_RE.exec(lines[i]);
     let indent = m ? m[1] : '';
     let inList = false;
@@ -200,7 +216,7 @@
       const l = LIST_BLOCK_RE.exec(lines[i]);
       if (l) { m = [l[0], l[1], l[3], l[4]]; indent = ' '.repeat(l[1].length + l[2].length); inList = true; }
     }
-    if (!m) return null;
+    if (!m || (kinds && !allowed(kinds, !!m[2]))) return null;
     const kind = m[2] ? 'decision' : 'question';
     // Ende: die erste Zeile "```" ausserhalb eines Codes im Block ("~~~" oder "```sprache" bis zur nächsten Zeile mit demselben Zeichen)
     let j = i + 1;
@@ -224,7 +240,7 @@
       if (inner) { if (l.trim().startsWith(inner)) inner = null; continue; }
       const f = FENCE_RE.exec(l);
       if (f) { inner = f[1]; continue; }
-      const c = lineEntry(lines, k, contentEnd) || listEntry(lines, k, contentEnd);
+      const c = lineEntry(lines, k, contentEnd, kinds) || listEntry(lines, k, contentEnd, kinds);
       if (!c) continue;
       c.lineIndex = k;
       children.push(c);
@@ -257,23 +273,28 @@
    *  Ergebnis: { kind, text, due, reminders, people, answer, decided, decidedRaw, end, answerStart, indent } – end ist die erste Zeile danach
    *  (exklusiv). Ein Block hat dazu block: true, closed, contentStart, contentEnd (exklusiv), titleLine (oder null), details
    *  (Beschreibung ohne Unter-Einträge, oder null) und children (die Unter-Einträge mit lineIndex); sein Titel kann leer sein.
-   *  options.list: auch "- ? …" und "- ?!``` …" (dann list: true); options.inner: keine Blöcke (im Block selbst). */
+   *  options.list: auch "- ? …" und "- ?!``` …" (dann list: true); options.inner: keine Blöcke (im Block selbst);
+   *  options.questionKinds (v1.3.0): abgeschaltete Arten sind keine Einträge (null). */
   function parseBlock(lines, i, options) {
     const o = options || {};
+    const kinds = kindsOf(o);
+    if (!kinds.question && !kinds.decision) return null;
     if (!o.inner) {
-      const b = blockEntry(lines, i, !!o.list);
+      const b = blockEntry(lines, i, !!o.list, kinds);
       if (b) return b;
     }
     if (o.list) {
-      const l = listEntry(lines, i, lines.length);
+      const l = listEntry(lines, i, lines.length, kinds);
       if (l) return l;
     }
-    return lineEntry(lines, i, lines.length);
+    return lineEntry(lines, i, lines.length, kinds);
   }
 
   /** Zerlegt einen Notiztext in Fragen und Entscheide mit optionaler Antwort, in der Reihenfolge des Texts. Unter-Einträge eines
-   *  Blocks folgen ihm und tragen in parent dessen Stelle in der Liste. Code (``` und ~~~) zählt nicht, wie in der Vorschau. */
-  function parse(body) {
+   *  Blocks folgen ihm und tragen in parent dessen Stelle in der Liste. Code (``` und ~~~) zählt nicht, wie in der Vorschau.
+   *  options.questionKinds (v1.3.0): { questions, decisions } wie in kindsOf; abgeschaltete Arten fehlen in der Liste. */
+  function parse(body, options) {
+    const kinds = kindsOf(options);
     const lines = (flat(body) || '').split('\n');
     const result = [];
     const push = (b, lineIndex, parent) => {
@@ -305,7 +326,7 @@
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (fence) { if (line.trim().startsWith(fence)) fence = null; continue; }
-      const b = parseBlock(lines, i, { list: true });
+      const b = parseBlock(lines, i, { list: true, questionKinds: options && options.questionKinds });
       if (b) {
         const own = b.text ? push(b, i, null) : null;
         if (b.block) for (const c of b.children) push(c, c.lineIndex, own);
@@ -317,7 +338,7 @@
         // Einträge in den Feldern (nicht in der Titelzeile); bei Tabellen mit Rahmen darf die Antwort in der nächsten Textzeile stehen
         for (const cell of tb.cellsOf(table, lines)) {
           if (cell.r === 'h') continue;
-          for (const e of entriesOfCell(cell.index, cell.parts)) {
+          for (const e of entriesOfCell(cell.index, cell.parts, kinds)) {
             const L = e.line;
             delete e.line;
             push(Object.assign(e, { answerStart: L + 1, end: L + 1, indent: '' }), L, null);
@@ -433,5 +454,5 @@
     return offset;
   }
 
-  global.NoNotesQuestions = { parse, parseBlock, cellEntries, contentLines, nest, people, splitDecided, normalize, writeAnswer, locate, toggleLinePrefix, offsetOfLine, PERSON_RE, QUESTION_RE, ANSWER_RE };
+  global.NoNotesQuestions = { kindsOf, parse, parseBlock, cellEntries, contentLines, nest, people, splitDecided, normalize, writeAnswer, locate, toggleLinePrefix, offsetOfLine, PERSON_RE, QUESTION_RE, ANSWER_RE };
 })(window);
