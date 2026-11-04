@@ -686,8 +686,8 @@ async function runV13(browser, part) {
   assert.equal(await page.$eval('#kp h2', h => h.textContent), 'Danach');
   assert.ok((await page.$eval('#kp', p => p.textContent)).includes('Ende'));
   await page.evaluate(() => window.k.setQuestionKinds({ decisions: true }));
-  await waitCards(page, 1);
-  assert.equal(await page.$$eval('#kp .md-q-block', n => n.length), 1);
+  await waitCards(page, 2);
+  assert.equal(await page.$$eval('#kp .md-q-block', n => n.length), 2);
   part('Block');
 
   // 8. «Beantworten» bei abgeschaltetem Entscheid: die Antwort steht unter der Frage, der Rest bleibt
