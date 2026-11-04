@@ -2,6 +2,23 @@
 
 Semantische Versionen (siehe [docs/DESIGN.md](docs/DESIGN.md) §8). Ein Release ist ein Tag; Gastgeber zeigen in `devDependencies` darauf.
 
+## v1.3.0 (2026-11-04)
+
+Wunsch E9 von SteeringBoard (`docs/WUENSCHE-AN-DEN-KERN.md` dort): Fragen und Entscheide je Editor einzeln abschaltbar. Wahlweise und
+rückwärtskompatibel (ohne die Option gelten beide, wie bisher); Einzelheiten in [docs/DESIGN.md](docs/DESIGN.md) §4c. Keine neuen oder
+geänderten Schlüssel im Katalog: die Sprachpakete der Gastgeber bleiben vollständig.
+
+- **`questionKinds`** an `NoNotesEditor.create`: `{ questions: true, decisions: true }` (Vorgabe), `false` schaltet beide ab. Eine
+  abgeschaltete Art hat keinen Knopf (die «Antwort» bleibt, solange eine Art gilt), keine Taste (Ctrl+Shift+F / D, auch `runCommand`
+  tut nichts), in der Vorschau ist die Zeile gewöhnlicher Text oder Listenpunkt (kein Abzeichen, kein «Beantworten»/«Entscheiden», keine
+  Frist), `counts()` und die Zähler im Fuss zählen sie nicht, und der Block «?!```» dieser Art ist keiner (die Vorschau zeichnet ihn als gewöhnliches Markdown: Öffnerzeile «?!```» wie geschrieben als Absatz oder Listenpunkt, Inhalt normal, die Schlusszeile «```» fällt weg). **Der Text wird nie verändert.**
+- **`ed.questionKinds()`** liest die Einstellung, **`ed.setQuestionKinds({ decisions: false })`** ändert sie später (nur die genannten
+  Arten; `true`/`false` für beide); Toolleiste, Zähler und Vorschau folgen sofort.
+- **`NoNotesQuestions.parse(text, { questionKinds })`**, `parseBlock(lines, i, { questionKinds, … })`, `cellEntries(line, cols, { questionKinds })`
+  und **`NoNotesMarkdown.render(text, { questionKinds })`** nehmen dieselbe Angabe (zum Auswerten und Zeichnen ausserhalb des Editors,
+  zum Beispiel für den Index im Backend); neu auch `NoNotesQuestions.kindsOf(options)`.
+- `editor.css`: `.toolbar button[hidden]` und `.tb-sep[hidden]` sind ausgeblendet.
+
 ## v1.2.0 (2026-11-03)
 
 Ausfüllen von Platzhaltern, nach einer Vorlage in SteeringBoard; Einzelheiten und Tabelle der Tasten in [docs/DESIGN.md](docs/DESIGN.md) §4b.

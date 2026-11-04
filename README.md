@@ -29,7 +29,7 @@ und seine Regeln aus `app.css`). Die Module sind verschoben, nicht neu geschrieb
 ## Einbinden
 
 ```json
-"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.1.0" }
+"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.3.0" }
 ```
 
 Der Build des Gastgebers kopiert die Dateien in sein Ergebnis, zum Beispiel:
@@ -66,10 +66,23 @@ const ed = NoNotesEditor.create(document.getElementById('host'), {
   // Ziele dürfen auch href, title, className und data liefern (v1.1.0); afterRender(preview, ed) nach jedem Zeichnen der Vorschau
   onMode: (mode, ed, { remember }) => { if (remember) merken(mode); },     // remember: von der Person gewählt (v1.1.0)
   readOnlyTools: 'hide',                                                  // Schreibschutz: Toolleiste und Bilderleiste verborgen (v1.1.0)
+  questionKinds: { questions: true, decisions: false },                   // Entscheide «?!» hier aus, Fragen «?» an (v1.3.0)
   showMenu: (items, x, y) => myMenu(items, x, y),
 });
 ed.get(); ed.set('Neu'); ed.mode('preview'); ed.insert('Liebe {{?Name}}'); await ed.flush();
 ```
+
+### Fragen und Entscheide je Editor abschalten (v1.3.0)
+
+| Option / Aufruf | Bedeutung |
+| --- | --- |
+| `questionKinds: { questions, decisions }` | an `create`; Vorgabe `{ questions: true, decisions: true }`, `false` schaltet beide ab. Eine fehlende Angabe lässt die Art gelten. |
+| `ed.questionKinds()` | liest die Einstellung: `{ questions, decisions }` |
+| `ed.setQuestionKinds({ decisions: false })` | ändert sie später (nur die genannten Arten; `true`/`false` für beide); Toolleiste, Zähler, Vorschau folgen |
+| `NoNotesQuestions.parse(text, { questionKinds })`, `NoNotesMarkdown.render(text, { questionKinds })` | dieselbe Angabe ausserhalb des Editors (zum Beispiel für den Index im Backend) |
+
+Eine abgeschaltete Art hat keinen Knopf und keine Taste, ist in der Vorschau gewöhnlicher Text (auch als Block «?!```»), zählt nicht im Fuss
+und in `counts()`; der Text wird nie verändert. Einzelheiten und Folgen: [docs/DESIGN.md](docs/DESIGN.md) §4c.
 
 ### Platzhalter ausfüllen (Tasten)
 

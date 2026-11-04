@@ -333,7 +333,8 @@
     return { text: makeText(options.highlight), resolveTitle: options.resolveTitle, resolveRef: options.resolveRef, noteLink: options.noteLink || null, resolveAttachment: options.resolveAttachment, interactiveTasks: !!options.interactiveTasks, lineMap: !!options.lineMap, embeds: !!options.embeds, embedLoad: options.embedLoad, people: !!options.people,
       inBlock: !!options.inBlock, lineOffset: options.lineOffset || 0, options,
       // Tabellen: Format der Erweiterungen (tableFormat) und die Quellzeile (data-src) nur dort, wo sie im Text stimmt
-      tableFormat: typeof options.tableFormat === 'function' ? options.tableFormat : null, tableSrc: options.tableSrc !== false && !options.inBlock };
+      tableFormat: typeof options.tableFormat === 'function' ? options.tableFormat : null, tableSrc: options.tableSrc !== false && !options.inBlock,
+      skip: new Set() }; // skip: Zeilen "```" am Ende von Blöcken einer abgeschalteten Art (v1.3.0), nicht gezeichnet
   }
 
   /** Nur Zeilenformatierung (fett, Code, Links, [[Verweise]]), z. B. für Listeneinträge und den Druck. */
@@ -397,6 +398,13 @@
       return `<span class="md-due md-reminder due ${u}" data-date="${escapeHtml(r)}" title="${escapeHtml(t('Erinnerung {datum}', { datum: D.formatDue(r) }))}">${escapeHtml(D.formatDue(r))}</span>`;
     }).join('');
     return rem + `<span class="md-due due ${done ? 'none' : D.urgency(due)}" data-date="${escapeHtml(due)}"${rem ? ` title="${escapeHtml(t('Frist {datum}', { datum: D.formatDue(due) }))}"` : ''}>${escapeHtml(done ? D.formatDue(due) : D.dueLabel(due))}</span>`;
+  }
+
+  /** Öffnerzeile eines Blocks einer abgeschalteten Art (v1.3.0) als HTML: «?!```» bleibt wie geschrieben stehen, der Titel dahinter wird
+   *  wie sonst gezeichnet. text: die Zeile ohne Listenzeichen. */
+  function disabledOpenerHtml(text, ctx) {
+    const m = /^(\s*\?!?\s?```)(.*)$/.exec(text);
+    return m ? escapeHtml(m[1].trim()) + renderInline(m[2], ctx) : renderInline(text, ctx);
   }
 
   /** Kasten für eine Frage oder einen Entscheid (einzeilig, in einer Liste oder als Block); lines ist der Text, in dem qb steht. */
@@ -478,7 +486,8 @@
         out.push(`<span class="md-cell-task task${done ? ' done' : ''}"${src}><input type="checkbox"${ctx.interactiveTasks && src ? '' : ' disabled'}${done ? ' checked' : ''} aria-label="${escapeHtml(done ? t('erledigt') : t('offen'))}"><span class="task-text">${renderInline(task.text, withPeople)}</span>${badge(task, done)}</span>`);
         continue;
       }
-      const qm = Q ? Q.QUESTION_RE.exec(p) : null;
+      let qm = Q ? Q.QUESTION_RE.exec(p) : null;
+      if (qm) { const kk = Q.kindsOf(ctx.options); if (!(qm[1] ? kk.decision : kk.question)) qm = null; } // abgeschaltete Art: Text (v1.3.0)
       const head = qm && !/^`{3}/.test(qm[2]) ? (D ? D.splitDue(qm[2]) : { text: qm[2].trim(), due: null, reminders: [] }) : null;
       if (head && head.text) {
         let j = k + 1;
@@ -554,6 +563,7 @@
     const lines = String(source || '').replace(/\r\n?/g, '\n').split('\n');
     const out = [];
     let i = 0;
+    const kinds = global.NoNotesQuestions ? global.NoNotesQuestions.kindsOf(options) : { question: true, decision: true }; // v1.3.0
 
     // Mit lineMap tragen die Blöcke data-line (Quellzeile), für das synchrone Scrollen der geteilten Ansicht.
     const la = n => ctx.lineMap ? ` data-line="${n + ctx.lineOffset}"` : '';
@@ -567,6 +577,7 @@
     };
 
     while (i < lines.length) {
+      if (ctx.skip.has(i)) { i++; continue; } // Schlusszeile eines abgeschalteten Blocks
       const line = lines[i];
 
       // Leerzeile
@@ -600,7 +611,7 @@
       if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { flushParagraph(); out.push(`<hr${la(i)}>`); i++; continue; }
 
       // Frage oder Entscheid mit Antwortzeilen, auch als Block (Syntax: questions.js); im Block keine Blöcke
-      const qb = global.NoNotesQuestions ? global.NoNotesQuestions.parseBlock(lines, i, { inner: ctx.inBlock }) : null;
+      const qb = global.NoNotesQuestions ? global.NoNotesQuestions.parseBlock(lines, i, { inner: ctx.inBlock, questionKinds: options.questionKinds }) : null;
       if (qb) {
         flushParagraph();
         out.push(entryHtml(qb, lines, ctx, la(i)));
@@ -608,11 +619,23 @@
         continue;
       }
 
-      // Antwort ohne Frage davor: als Hinweis darstellen
-      const loneAnswer = /^\s*(?:!!|!(?!\[))\s?(.*)$/.exec(line);
-      if (loneAnswer) {
+      // Block einer abgeschalteten Art (v1.3.0): kein Block; die Öffnerzeile ist ein Absatz, die Zeilen danach gewöhnliches Markdown,
+      // die Schlusszeile "```" fällt weg (sonst begänne dort ein Codeblock)
+      const off = !ctx.inBlock && global.NoNotesQuestions ? global.NoNotesQuestions.disabledBlock(lines, i, { questionKinds: options.questionKinds }) : null;
+      if (off) {
         flushParagraph();
-        out.push(`<div class="md-a md-a-lone"${la(i)}>${renderInline(loneAnswer[1].trim(), ctx)}</div>`);
+        out.push(`<p${la(i)}>${disabledOpenerHtml(line, ctx)}</p>`);
+        if (off.close != null) ctx.skip.add(off.close);
+        i++;
+        continue;
+      }
+
+      // Antwort ohne Frage davor: als Hinweis darstellen
+      // «!» gehört zur Frage, «!!» zum Entscheid: ist die Art abgeschaltet, ist die Zeile Text (v1.3.0)
+      const loneAnswer = /^\s*(!!|!(?!\[))\s?(.*)$/.exec(line);
+      if (loneAnswer && (loneAnswer[1] === '!!' ? kinds.decision : kinds.question)) {
+        flushParagraph();
+        out.push(`<div class="md-a md-a-lone"${la(i)}>${renderInline(loneAnswer[2].trim(), ctx)}</div>`);
         i++;
         continue;
       }
@@ -660,12 +683,13 @@
     const Q = global.NoNotesQuestions;
     let i = start;
     while (i < lines.length) {
+      if (ctx.skip.has(i)) { i++; continue; } // Schlusszeile eines abgeschalteten Blocks
       const m = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i]);
       if (!m) {
         // Fortsetzungszeile eines Listenpunkts (eingerückt) oder Ende; eine Frage oder ein Entscheid darin (auch ein Block, ausser
         // schon in einem Block) wird zum Kasten
         if (items.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*$/.test(lines[i])) {
-          const qc = Q ? Q.parseBlock(lines, i, { inner: ctx.inBlock }) : null;
+          const qc = Q ? Q.parseBlock(lines, i, { inner: ctx.inBlock, questionKinds: ctx.options.questionKinds }) : null;
           if (qc) { items[items.length - 1].text += entryHtml(qc, lines, ctx, ''); i = qc.end; continue; }
           items[items.length - 1].text += '<br>' + renderInline(lines[i].trim(), ctx);
           i++;
@@ -674,13 +698,18 @@
         break;
       }
       // Frage oder Entscheid als Listenpunkt ("- ?! …", als Block "- ?!``` …" ausser im Block), die Antwort eingerückt darunter
-      const qe = Q && /^\?/.test(m[3]) ? Q.parseBlock(lines, i, { list: true, inner: ctx.inBlock }) : null;
+      const qe = Q && /^\?/.test(m[3]) ? Q.parseBlock(lines, i, { list: true, inner: ctx.inBlock, questionKinds: ctx.options.questionKinds }) : null;
       if (qe && qe.list) {
         items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), text: entryHtml(qe, lines, ctx, ''), task: null, line: i, entry: true });
         i = qe.end;
         continue;
       }
       let text = m[3];
+      let opener = false;
+      if (Q && /^\?/.test(m[3]) && !ctx.inBlock) {
+        const off = Q.disabledBlock(lines, i, { list: true, questionKinds: ctx.options.questionKinds }); // Block einer abgeschalteten Art
+        if (off) { opener = true; if (off.close != null) ctx.skip.add(off.close); }
+      }
       let task = null;
       let dueHtml = '';
       const tm = /^\[( |x|X)\]\s+(.*)$/.exec(text);
@@ -696,7 +725,7 @@
           }
         }
       }
-      items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), text: renderInline(text, task != null ? Object.assign({}, ctx, { people: true }) : ctx) + dueHtml, task, line: i });
+      items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), text: (opener ? disabledOpenerHtml(text, ctx) : renderInline(text, task != null ? Object.assign({}, ctx, { people: true }) : ctx)) + dueHtml, task, line: i });
       i++;
     }
 

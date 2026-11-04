@@ -150,6 +150,47 @@ Tasten beim Ausfüllen (nach dem Einfügen einer Vorlage, `insert(text)`, `start
   die Bereiche der Auswahl); Uhrzeit und Schnellknöpfe bleiben mit der Maus erreichbar. Für Platzhalter im Feld des Gastgebers öffnet keine Auswahl.
 - Keine neuen oder geänderten Schlüssel im Katalog (die Hinweistexte nennen weiter nur Tab und Esc).
 
+## 4c. Neu in v1.3.0 (Wunsch E9 von SteeringBoard: Fragen und Entscheide je Editor schaltbar)
+
+SteeringBoard hat Felder, in denen eine Frage oder ein Entscheid nichts bedeutet (der Text eines Entscheids selbst: keines von beiden;
+Beschreibung einer Kennzahl: nur Fragen; Beschreibung eines Texts: keines). Zwei unabhängige Schalter, Vorgabe beide an (kein Gastgeber
+muss etwas ändern):
+
+```js
+NoNotesEditor.create(host, { …, questionKinds: { questions: true, decisions: false } });   // false = beide aus
+ed.questionKinds();                                  // → { questions: true, decisions: false }
+ed.setQuestionKinds({ decisions: true });            // nur die genannten Arten ändern sich; true/false für beide
+NoNotesQuestions.parse(text, { questionKinds });     // dieselbe Angabe: Index im Backend
+NoNotesMarkdown.render(text, { questionKinds });
+```
+
+Der Name folgt `answers`, `counts` und `people`: eine Option je Eigenschaft des Editors; «questions» steht im Plural für die Fragen «? …» mit
+den Antworten «! …», «decisions» für die Entscheide «?! …» mit «!! …». Eine fehlende Angabe oder alles ausser `false` lässt die Art gelten.
+
+Ist eine Art **aus**:
+
+| Stelle | Verhalten |
+| --- | --- |
+| Toolleiste | Knopf (`questionBtn` / `decisionBtn`) verborgen (`hidden`); die «Antwort» bleibt, solange eine Art gilt; sind beide aus, fallen auch die drei Knöpfe und ihr Trennstrich weg |
+| Tasten | Ctrl+Shift+F / Ctrl+Shift+D (und `runCommand('question' \| 'decision')`) tun nichts; Ctrl+Shift+A (Antwort) wirkt nur, solange eine Art gilt |
+| Vorschau | die Zeile ist gewöhnlicher Absatztext oder Listenpunkt, im Tabellenfeld Text: kein Abzeichen, kein «Beantworten»/«Entscheiden», keine Frist-Abzeichen dieser Art. Eine allein stehende Antwort («!» gehört zur Frage, «!!» zum Entscheid) ist bei abgeschalteter Art ebenfalls Text |
+| Zähler | `counts()` und die Zeile im Fuss (`data-counts`) zählen die Art nicht |
+| Block | «?!```» (oder «?```») dieser Art ist kein Block; ein Unter-Eintrag der abgeschalteten Art in einem Block der anderen Art ist Text in dessen Beschreibung und zählt nicht mit |
+| Parser | `NoNotesQuestions.parse`, `parseBlock` und `cellEntries` liefern die Art nicht |
+| Text | **nie verändert**: Abschalten verbirgt die Bedeutung, schreibt nichts um (auch beim späteren Einschalten ist alles wie zuvor) |
+
+- **Später ändern ist günstig:** `setQuestionKinds` setzt den Zustand, passt die Toolleiste an, zählt neu und zeichnet die Vorschau neu.
+  Die Einstellung des Editors gilt in der Vorschau immer, auch gegen ein `questionKinds` aus `render()` des Gastgebers.
+- **Block einer abgeschalteten Art:** die Vorschau erkennt den Umfang wie mit der Art an (`NoNotesQuestions.disabledBlock`: Öffnerzeile
+  «?!```» / «?```», auch als Listenpunkt «- ?!``` …», bis zur Zeile «```» ausserhalb von Code) und zeichnet ihn als gewöhnliches Markdown:
+  die Öffnerzeile als eigener Absatz (bzw. als Listenpunkt) mit **«?!```» wie geschrieben** und dem Titel dahinter wie sonst gezeichnet,
+  die Zeilen im Block als normales Markdown (Überschriften, Listen, Code in «~~~» bleiben, was sie sind), die einzelne Schlusszeile «```»
+  **fällt aus der Ausgabe weg** (sonst begänne dort ein Codeblock, der den Rest des Texts verschluckte). Ein nicht geschlossener Block
+  ist nur die Öffnerzeile. Die Quelle ändert sich nicht; `data-line` der übrigen Zeilen stimmt weiter.
+- Noch nicht geändert: Enter am Ende einer Zeile «! …» führt die Antwort weiter (`editing.js`), auch wenn beide Arten aus sind. Das
+  ist Eingabehilfe beim Schreiben, nicht Bedeutung.
+- Keine neuen oder geänderten Schlüssel im Katalog.
+
 ## 5. Texte und Ersetzungen
 
 Der deutsche Text (Schweiz, `ss`) im Quelltext ist der Schlüssel, wie in NoNotes. `lang/editor.de.js` ist der Katalog aller Schlüssel

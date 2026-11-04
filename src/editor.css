@@ -247,6 +247,7 @@ a.md-path { text-decoration: none; border-bottom: 1px dotted currentColor; overf
 }
 .toolbar button:hover { background: var(--hover); }
 .toolbar button:disabled { opacity: .4; }
+.toolbar button[hidden], .toolbar .tb-sep[hidden] { display: none; } /* abgeschaltete Fragen und Entscheide (questionKinds) */
 .toolbar svg { width: 16px; height: 16px; fill: currentColor; }
 .tb-glyph { font-size: 13px; font-weight: 700; line-height: 1; }
 .tb-mono { font-family: ui-monospace, SFMono-Regular, Consolas, Menlo, monospace; font-size: 11px; letter-spacing: -.5px; }
