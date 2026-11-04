@@ -206,6 +206,36 @@
     return out;
   }
 
+  /** Zeile des Endes eines Blocks, der in Zeile i öffnet: die erste Zeile "```" ausserhalb eines Codes im Block ("~~~" oder
+   *  "```sprache" bis zur nächsten Zeile mit demselben Zeichen); lines.length, wenn der Block nicht geschlossen ist. */
+  function blockClose(lines, i) {
+    let j = i + 1;
+    let inner = null;
+    for (; j < lines.length; j++) {
+      const l = lines[j];
+      if (inner) { if (l.trim().startsWith(inner)) inner = null; continue; }
+      if (CLOSE_RE.test(l)) break;
+      const f = FENCE_RE.exec(l);
+      if (f) inner = f[1];
+    }
+    return j;
+  }
+
+  /** Öffnet in Zeile i ein Block einer abgeschalteten Art (v1.3.0)? Dann { close } mit der Zeile "```" am Ende (null, wenn nicht
+   *  geschlossen): derselbe Umfang wie mit der Art an, damit die Vorschau die Zeilen dazwischen als gewöhnlichen Text zeichnen und die
+   *  Schlusszeile weglassen kann. options.list: auch "- ?!``` …"; sonst null. */
+  function disabledBlock(lines, i, options) {
+    const o = options || {};
+    const kinds = kindsOf(o);
+    let decision = null;
+    let m = BLOCK_RE.exec(lines[i] || '');
+    if (m) decision = !!m[2];
+    else if (o.list && (m = LIST_BLOCK_RE.exec(lines[i] || ''))) decision = !!m[3];
+    if (decision == null || allowed(kinds, decision)) return null;
+    const j = blockClose(lines, i);
+    return { close: j < lines.length ? j : null };
+  }
+
   /** Mehrzeiliger Eintrag "?!``` Titel" … "```" an Zeile i, samt Unter-Einträgen und der Antwort nach dem Block; mit list auch als
    *  Listenpunkt ("- ?!``` Titel", dann list: true und die Einrückung des Texts im Listenpunkt für die Antwort). */
   function blockEntry(lines, i, list, kinds) {
@@ -218,16 +248,8 @@
     }
     if (!m || (kinds && !allowed(kinds, !!m[2]))) return null;
     const kind = m[2] ? 'decision' : 'question';
-    // Ende: die erste Zeile "```" ausserhalb eines Codes im Block ("~~~" oder "```sprache" bis zur nächsten Zeile mit demselben Zeichen)
-    let j = i + 1;
+    let j = blockClose(lines, i);
     let inner = null;
-    for (; j < lines.length; j++) {
-      const l = lines[j];
-      if (inner) { if (l.trim().startsWith(inner)) inner = null; continue; }
-      if (CLOSE_RE.test(l)) break;
-      const f = FENCE_RE.exec(l);
-      if (f) inner = f[1];
-    }
     const closed = j < lines.length;
     const contentStart = i + 1;
     const contentEnd = j;
@@ -454,5 +476,5 @@
     return offset;
   }
 
-  global.NoNotesQuestions = { kindsOf, parse, parseBlock, cellEntries, contentLines, nest, people, splitDecided, normalize, writeAnswer, locate, toggleLinePrefix, offsetOfLine, PERSON_RE, QUESTION_RE, ANSWER_RE };
+  global.NoNotesQuestions = { kindsOf, disabledBlock, parse, parseBlock, cellEntries, contentLines, nest, people, splitDecided, normalize, writeAnswer, locate, toggleLinePrefix, offsetOfLine, PERSON_RE, QUESTION_RE, ANSWER_RE };
 })(window);

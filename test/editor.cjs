@@ -680,6 +680,11 @@ async function runV13(browser, part) {
   await waitCards(page, 0);
   assert.equal(await page.$$eval('#kp .md-q-block', n => n.length), 0);
   assert.equal(await counts(page), '0/0/0');
+  await page.evaluate(() => window.k.set('?!``` Titel\nTeil\n```\n!! ok\n\n## Danach\n\n- ?!``` Punkt\n  Teil\n  ```\n\nEnde'));
+  await page.waitForFunction(() => document.querySelector('#kp h2'));
+  assert.equal(await page.$$eval('#kp pre, #kp code', n => n.length), 0, 'kein Codeblock durch die Schlusszeile');
+  assert.equal(await page.$eval('#kp h2', h => h.textContent), 'Danach');
+  assert.ok((await page.$eval('#kp', p => p.textContent)).includes('Ende'));
   await page.evaluate(() => window.k.setQuestionKinds({ decisions: true }));
   await waitCards(page, 1);
   assert.equal(await page.$$eval('#kp .md-q-block', n => n.length), 1);

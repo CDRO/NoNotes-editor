@@ -181,9 +181,12 @@ Ist eine Art **aus**:
 
 - **Später ändern ist günstig:** `setQuestionKinds` setzt den Zustand, passt die Toolleiste an, zählt neu und zeichnet die Vorschau neu.
   Die Einstellung des Editors gilt in der Vorschau immer, auch gegen ein `questionKinds` aus `render()` des Gastgebers.
-- **Folge, die man kennen muss:** ist «?!```» aus, ist die Zeile «```» am Ende des Blocks für die Vorschau ein Zeichen für einen Codeblock
-  (Markdown kennt sie so); der Rest des Texts bis zum nächsten «```» steht dann als Code. Wer eine Art abschaltet, in der Blöcke
-  vorkamen, sieht das; der Text ist unberührt, mit der Art wieder an ist die Darstellung wie zuvor.
+- **Block einer abgeschalteten Art:** die Vorschau erkennt den Umfang wie mit der Art an (`NoNotesQuestions.disabledBlock`: Öffnerzeile
+  «?!```» / «?```», auch als Listenpunkt «- ?!``` …», bis zur Zeile «```» ausserhalb von Code) und zeichnet ihn als gewöhnliches Markdown:
+  die Öffnerzeile als eigener Absatz (bzw. als Listenpunkt) mit **«?!```» wie geschrieben** und dem Titel dahinter wie sonst gezeichnet,
+  die Zeilen im Block als normales Markdown (Überschriften, Listen, Code in «~~~» bleiben, was sie sind), die einzelne Schlusszeile «```»
+  **fällt aus der Ausgabe weg** (sonst begänne dort ein Codeblock, der den Rest des Texts verschluckte). Ein nicht geschlossener Block
+  ist nur die Öffnerzeile. Die Quelle ändert sich nicht; `data-line` der übrigen Zeilen stimmt weiter.
 - Noch nicht geändert: Enter am Ende einer Zeile «! …» führt die Antwort weiter (`editing.js`), auch wenn beide Arten aus sind. Das
   ist Eingabehilfe beim Schreiben, nicht Bedeutung.
 - Keine neuen oder geänderten Schlüssel im Katalog.

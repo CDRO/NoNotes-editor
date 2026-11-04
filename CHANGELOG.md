@@ -11,7 +11,7 @@ geänderten Schlüssel im Katalog: die Sprachpakete der Gastgeber bleiben vollst
 - **`questionKinds`** an `NoNotesEditor.create`: `{ questions: true, decisions: true }` (Vorgabe), `false` schaltet beide ab. Eine
   abgeschaltete Art hat keinen Knopf (die «Antwort» bleibt, solange eine Art gilt), keine Taste (Ctrl+Shift+F / D, auch `runCommand`
   tut nichts), in der Vorschau ist die Zeile gewöhnlicher Text oder Listenpunkt (kein Abzeichen, kein «Beantworten»/«Entscheiden», keine
-  Frist), `counts()` und die Zähler im Fuss zählen sie nicht, und der Block «?!```» dieser Art ist keiner. **Der Text wird nie verändert.**
+  Frist), `counts()` und die Zähler im Fuss zählen sie nicht, und der Block «?!```» dieser Art ist keiner (die Vorschau zeichnet ihn als gewöhnliches Markdown: Öffnerzeile «?!```» wie geschrieben als Absatz oder Listenpunkt, Inhalt normal, die Schlusszeile «```» fällt weg). **Der Text wird nie verändert.**
 - **`ed.questionKinds()`** liest die Einstellung, **`ed.setQuestionKinds({ decisions: false })`** ändert sie später (nur die genannten
   Arten; `true`/`false` für beide); Toolleiste, Zähler und Vorschau folgen sofort.
 - **`NoNotesQuestions.parse(text, { questionKinds })`**, `parseBlock(lines, i, { questionKinds, … })`, `cellEntries(line, cols, { questionKinds })`

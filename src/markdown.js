@@ -333,7 +333,8 @@
     return { text: makeText(options.highlight), resolveTitle: options.resolveTitle, resolveRef: options.resolveRef, noteLink: options.noteLink || null, resolveAttachment: options.resolveAttachment, interactiveTasks: !!options.interactiveTasks, lineMap: !!options.lineMap, embeds: !!options.embeds, embedLoad: options.embedLoad, people: !!options.people,
       inBlock: !!options.inBlock, lineOffset: options.lineOffset || 0, options,
       // Tabellen: Format der Erweiterungen (tableFormat) und die Quellzeile (data-src) nur dort, wo sie im Text stimmt
-      tableFormat: typeof options.tableFormat === 'function' ? options.tableFormat : null, tableSrc: options.tableSrc !== false && !options.inBlock };
+      tableFormat: typeof options.tableFormat === 'function' ? options.tableFormat : null, tableSrc: options.tableSrc !== false && !options.inBlock,
+      skip: new Set() }; // skip: Zeilen "```" am Ende von Blöcken einer abgeschalteten Art (v1.3.0), nicht gezeichnet
   }
 
   /** Nur Zeilenformatierung (fett, Code, Links, [[Verweise]]), z. B. für Listeneinträge und den Druck. */
@@ -397,6 +398,13 @@
       return `<span class="md-due md-reminder due ${u}" data-date="${escapeHtml(r)}" title="${escapeHtml(t('Erinnerung {datum}', { datum: D.formatDue(r) }))}">${escapeHtml(D.formatDue(r))}</span>`;
     }).join('');
     return rem + `<span class="md-due due ${done ? 'none' : D.urgency(due)}" data-date="${escapeHtml(due)}"${rem ? ` title="${escapeHtml(t('Frist {datum}', { datum: D.formatDue(due) }))}"` : ''}>${escapeHtml(done ? D.formatDue(due) : D.dueLabel(due))}</span>`;
+  }
+
+  /** Öffnerzeile eines Blocks einer abgeschalteten Art (v1.3.0) als HTML: «?!```» bleibt wie geschrieben stehen, der Titel dahinter wird
+   *  wie sonst gezeichnet. text: die Zeile ohne Listenzeichen. */
+  function disabledOpenerHtml(text, ctx) {
+    const m = /^(\s*\?!?\s?```)(.*)$/.exec(text);
+    return m ? escapeHtml(m[1].trim()) + renderInline(m[2], ctx) : renderInline(text, ctx);
   }
 
   /** Kasten für eine Frage oder einen Entscheid (einzeilig, in einer Liste oder als Block); lines ist der Text, in dem qb steht. */
@@ -569,6 +577,7 @@
     };
 
     while (i < lines.length) {
+      if (ctx.skip.has(i)) { i++; continue; } // Schlusszeile eines abgeschalteten Blocks
       const line = lines[i];
 
       // Leerzeile
@@ -607,6 +616,17 @@
         flushParagraph();
         out.push(entryHtml(qb, lines, ctx, la(i)));
         i = qb.end;
+        continue;
+      }
+
+      // Block einer abgeschalteten Art (v1.3.0): kein Block; die Öffnerzeile ist ein Absatz, die Zeilen danach gewöhnliches Markdown,
+      // die Schlusszeile "```" fällt weg (sonst begänne dort ein Codeblock)
+      const off = !ctx.inBlock && global.NoNotesQuestions ? global.NoNotesQuestions.disabledBlock(lines, i, { questionKinds: options.questionKinds }) : null;
+      if (off) {
+        flushParagraph();
+        out.push(`<p${la(i)}>${disabledOpenerHtml(line, ctx)}</p>`);
+        if (off.close != null) ctx.skip.add(off.close);
+        i++;
         continue;
       }
 
@@ -663,6 +683,7 @@
     const Q = global.NoNotesQuestions;
     let i = start;
     while (i < lines.length) {
+      if (ctx.skip.has(i)) { i++; continue; } // Schlusszeile eines abgeschalteten Blocks
       const m = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i]);
       if (!m) {
         // Fortsetzungszeile eines Listenpunkts (eingerückt) oder Ende; eine Frage oder ein Entscheid darin (auch ein Block, ausser
@@ -684,6 +705,11 @@
         continue;
       }
       let text = m[3];
+      let opener = false;
+      if (Q && /^\?/.test(m[3]) && !ctx.inBlock) {
+        const off = Q.disabledBlock(lines, i, { list: true, questionKinds: ctx.options.questionKinds }); // Block einer abgeschalteten Art
+        if (off) { opener = true; if (off.close != null) ctx.skip.add(off.close); }
+      }
       let task = null;
       let dueHtml = '';
       const tm = /^\[( |x|X)\]\s+(.*)$/.exec(text);
@@ -699,7 +725,7 @@
           }
         }
       }
-      items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), text: renderInline(text, task != null ? Object.assign({}, ctx, { people: true }) : ctx) + dueHtml, task, line: i });
+      items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), text: (opener ? disabledOpenerHtml(text, ctx) : renderInline(text, task != null ? Object.assign({}, ctx, { people: true }) : ctx)) + dueHtml, task, line: i });
       i++;
     }
 

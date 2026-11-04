@@ -1083,8 +1083,27 @@ async function runQuestionKinds(browser, part) {
   const onB = squash(M.render(BLOCKS));
   assert.equal(count(onB, /md-q-block/g), 2);
   assert.deepEqual(names('?!``` Titel\nTeil\n```\n!! ok\n\nNach', KINDS.dec), []);
-  const offB = squash(M.render('?!``` Titel\nTeil\n```\n!! ok\n\nNach dem Block', KINDS.dec));
-  assert.ok(!offB.includes('md-q-block') && !offB.includes('md-decision') && offB.includes('Teil') && offB.includes('?!'), 'Entscheid aus: kein Block: ' + offB);
+  const offB = squash(M.render('?!``` Titel\nTeil\n```\n!! ok\n\n## Danach\n\nText nach dem Block', KINDS.dec));
+  assert.ok(!offB.includes('md-q-block') && !offB.includes('md-decision'), 'Entscheid aus: kein Block: ' + offB);
+  assert.ok(!offB.includes('<pre') && !offB.includes('<code') && !offB.includes('&lt;'), 'Schlusszeile ist kein Codeblock: ' + offB);
+  assert.ok(offB.includes('<p>?!``` Titel</p>') && offB.includes('Teil') && offB.includes('<h2>Danach</h2>') && offB.includes('<p>Text nach dem Block</p>'), 'Öffner als Absatz, Rest und Überschrift normal: ' + offB);
+  assert.ok(M.render('?!``` Titel *fett*\nTeil\n```', KINDS.dec).includes('<p>?!``` Titel <em>fett</em></p>'), 'Titel wie sonst gezeichnet');
+  assert.equal(count(offB, /```/g), 1, 'die Schlusszeile «```» fehlt in der Ausgabe');
+  // Inhalt des Blocks ist gewöhnliches Markdown (Überschrift, Liste, Code mit ~~~ bleibt Code)
+  const inner = squash(M.render('?!``` T\n## Innen\n- a\n- b\n~~~\ncode\n~~~\n```\n## Nach', KINDS.dec));
+  assert.ok(inner.includes('<h2>Innen</h2>') && inner.includes('<ul><li>a</li><li>b</li></ul>') && inner.includes('<pre><code>code</code></pre>') && inner.includes('<h2>Nach</h2>') && count(inner, /<pre/g) === 1, 'Inneres normal, Code bleibt Code: ' + inner);
+  // nicht geschlossen: nur der Öffner, nichts verschluckt
+  assert.ok(squash(M.render('?!``` T\nRest', KINDS.dec)).includes('<p>?!``` T</p><p>Rest</p>') || squash(M.render('?!``` T\nRest', KINDS.dec)).includes('Rest'));
+  // als Listenpunkt
+  const li = squash(M.render('- ?!``` Titel\n  Teil\n  ```\n- Nächster\n\n## Danach\n\nText nach der Liste', KINDS.dec));
+  assert.ok(!li.includes('<pre') && !li.includes('<code') && !li.includes('&lt;') && !li.includes('md-q'), 'Liste: kein Code: ' + li);
+  assert.ok(li.includes('<ul><li>?!``` Titel<br>Teil</li><li>Nächster</li></ul>') && li.includes('<h2>Danach</h2>') && li.includes('<p>Text nach der Liste</p>'), 'Liste: Punkt, Rest, Überschrift: ' + li);
+  // Fragen aus: derselbe Umfang für «?```»
+  const qoff = squash(M.render('?``` T\nTeil\n```\n! ok\n\n# Ende', KINDS.q));
+  assert.ok(!qoff.includes('<pre') && qoff.includes('<p>?``` T</p>') && qoff.includes('<h1>Ende</h1>'), qoff);
+  // Block der eingeschalteten Art wird wie bisher gezeichnet; der Text ändert sich nicht
+  assert.ok(M.render('?!``` Titel\nTeil\n```\n!! ok\n\n## Danach').includes('md-q-block'));
+  assert.deepEqual(names('?!``` Titel\nTeil\n```\n!! ok\n\nNach', KINDS.dec), []);
   assert.deepEqual(names('?``` Titel\nTeil\n```\n! ok', KINDS.q), []);
   assert.ok(!M.render('?``` Titel\nTeil\n```\n! ok', KINDS.q).includes('md-q-block'));
   // die andere Art bleibt Block, samt ihren Unter-Einträgen; Unter-Einträge der abgeschalteten Art zählen nicht
