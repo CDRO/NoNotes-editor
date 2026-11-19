@@ -13,7 +13,7 @@
   'use strict';
 
   // Texte über das Label-Modul des Pakets (labels.js, wird zuerst geladen); der Gastgeber kann jeden Text ersetzen.
-  const { t, tn } = global.NoNotesEditorLabels;
+  const { t, tn, N_ } = global.NoNotesEditorLabels;
 
   function escapeHtml(s) {
     return String(s)
@@ -119,6 +119,61 @@
   }
 
   const pathBoundary = c => c === undefined || /[\s(\["'>]/.test(c);
+
+  // ---------- Hervorheben (v1.4.0): ==Text== und ==Text=={farbe} ----------
+  // Die 16 Knotenfarben der Erweiterung «tag-colors» von NoNotes: Kennung (Deutsch), englischer Name, Anzeigename (Schlüssel für t()),
+  // weitere Schreibweisen. Die Füllfarben stehen in editor.css (.md-hl-<kennung>), nicht hier.
+  const HL_DEFS = [
+    ['rot', 'red', N_('Rot'), []], ['orange', 'orange', N_('Orange'), []], ['bernstein', 'amber', N_('Bernstein'), []],
+    ['gelb', 'yellow', N_('Gelb'), []], ['limette', 'lime', N_('Limette'), []], ['gruen', 'green', N_('Grün'), ['grün']],
+    ['smaragd', 'emerald', N_('Smaragd'), []], ['tuerkis', 'teal', N_('Türkis'), ['türkis']], ['cyan', 'cyan', N_('Cyan'), []],
+    ['himmelblau', 'sky', N_('Himmelblau'), []], ['blau', 'blue', N_('Blau'), []], ['indigo', 'indigo', N_('Indigo'), []],
+    ['violett', 'violet', N_('Violett'), []], ['purpur', 'purple', N_('Purpur'), []], ['pink', 'pink', N_('Pink'), []],
+    ['grau', 'gray', N_('Grau'), ['grey']],
+  ];
+  const HL_BY_NAME = new Map();
+  for (const [id, en, , more] of HL_DEFS) for (const n of [id, en, ...more]) HL_BY_NAME.set(n, id);
+  /** Kennung (Deutsch) zu einem Farbnamen, deutsch oder englisch, gross oder klein, mit Umlaut; sonst null. */
+  function highlightId(name) { return HL_BY_NAME.get(String(name == null ? '' : name).trim().toLowerCase()) || null; }
+
+  /** Ab Stelle i steht «==»: ein Hervorheben `==Text==` oder `==Text=={farbe}`? → { end, innerStart, innerEnd, color (Kennung oder null =
+   *  gelb), name (der geschriebene Name oder null), suffixStart (Beginn von «{farbe}» oder end), known } oder null. Innen steht ein
+   *  Zeichen ohne Leerraum am Rand; Code in Backticks wird übersprungen, «\==» schliesst nicht. Ein unbekannter Name im Suffix wird kein
+   *  Teil davon (`{foo}` bleibt Text, die Farbe ist die vorgegebene). */
+  function scanHighlight(src, i) {
+    if (src[i] !== '=' || src[i + 1] !== '=') return null;
+    const a = i + 2;
+    if (a >= src.length || /[\s=]/.test(src[a])) return null;
+    for (let j = a; j < src.length; j++) {
+      const c = src[j];
+      if (c === '`') { const close = src.indexOf('`', j + 1); if (close > j) j = close; continue; }
+      if (c === '\\' && src[j + 1] === '=') { j++; continue; }
+      if (c === '=' && src[j + 1] === '=' && j > a && !/\s/.test(src[j - 1])) {
+        const sm = /^\{([^{}\n]*)\}/.exec(src.slice(j + 2));
+        const id = sm ? highlightId(sm[1]) : null;
+        const end = j + 2 + (id ? sm[0].length : 0);
+        return { end, innerStart: a, innerEnd: j, color: id, name: id ? sm[1].trim() : null, suffixStart: j + 2, known: !!id };
+      }
+    }
+    return null;
+  }
+
+  /** Alle Hervorhebungen einer Zeile (ohne Code, ohne «\==»), in der Reihenfolge ihres Auftretens: [{ start, end, innerStart, innerEnd, color, … }]. */
+  function findHighlights(line) {
+    const src = String(line == null ? '' : line);
+    const out = [];
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (c === '`') { const close = src.indexOf('`', i + 1); if (close > i) i = close; continue; }
+      if (c === '\\' && src[i + 1] === '=') { i++; continue; }
+      if (c === '=' && src[i + 1] === '=') {
+        const h = scanHighlight(src, i);
+        if (h) { out.push(Object.assign({ start: i }, h)); i = h.end - 1; continue; }
+        while (src[i + 1] === '=') i++; // eine Folge von «=» ist keine Öffnung
+      }
+    }
+    return out;
+  }
 
   /** Erzeugt den Textrenderer: escaped und hebt optional Suchtreffer hervor. */
   function makeText(highlight) {
@@ -278,6 +333,26 @@
         }
       }
 
+      // Hervorheben ==Text== (gelb) und ==Text=={farbe}; «\==» bleibt Text (v1.4.0)
+      if (ch === '=' && src[i + 1] === '=') {
+        const hl = scanHighlight(src, i);
+        if (hl) {
+          out += `<mark class="md-hl md-hl-${hl.color || 'gelb'}${hl.color ? '' : ' md-hl-default'}">` + renderInline(src.slice(hl.innerStart, hl.innerEnd), ctx) + '</mark>';
+          i = hl.end;
+          continue;
+        }
+        let j = i; while (src[j] === '=') j++; // eine Folge von «=» ohne Hervorheben ist Text
+        emit(src.slice(i, j));
+        i = j;
+        continue;
+      }
+      if (ch === '\\' && src[i + 1] === '=' && src[i + 2] === '=') { // «\==» schreibt «==» als Text
+        let j = i + 1; while (src[j] === '=') j++;
+        emit(src.slice(i, j));
+        i = j;
+        continue;
+      }
+
       // Fett / kursiv / durchgestrichen
       const em = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1/.exec(src.slice(i));
       if (em) { out += '<strong>' + renderInline(em[2], ctx) + '</strong>'; i += em[0].length; continue; }
@@ -316,7 +391,7 @@
       }
 
       // Normaler Text bis zum nächsten Sonderzeichen (mit Personen-Marken auch bis "@" und "(")
-      const stops = (ctx.people ? '`![*_~hw@(' : '`![*_~hw') + 'f\\<{';
+      const stops = (ctx.people ? '`![*_~hw@(' : '`![*_~hw') + 'f\\<{=';
       let j = i + 1;
       // ein Laufwerkspfad beginnt mit einem Buchstaben: vor «X:\» anhalten, wenn davor ein Leerzeichen oder der Anfang steht
       while (j < n && !stops.includes(src[j]) && !(src[j + 1] === ':' && src[j + 2] === '\\' && /[A-Za-z]/.test(src[j]) && pathBoundary(src[j - 1]))) j++;
@@ -700,7 +775,7 @@
       // Frage oder Entscheid als Listenpunkt ("- ?! …", als Block "- ?!``` …" ausser im Block), die Antwort eingerückt darunter
       const qe = Q && /^\?/.test(m[3]) ? Q.parseBlock(lines, i, { list: true, inner: ctx.inBlock, questionKinds: ctx.options.questionKinds }) : null;
       if (qe && qe.list) {
-        items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), text: entryHtml(qe, lines, ctx, ''), task: null, line: i, entry: true });
+        items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10), text: entryHtml(qe, lines, ctx, ''), task: null, line: i, entry: true });
         i = qe.end;
         continue;
       }
@@ -725,7 +800,7 @@
           }
         }
       }
-      items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), text: (opener ? disabledOpenerHtml(text, ctx) : renderInline(text, task != null ? Object.assign({}, ctx, { people: true }) : ctx)) + dueHtml, task, line: i });
+      items.push({ indent: m[1].length, ordered: /\d/.test(m[2]), num: parseInt(m[2], 10), text: (opener ? disabledOpenerHtml(text, ctx) : renderInline(text, task != null ? Object.assign({}, ctx, { people: true }) : ctx)) + dueHtml, task, line: i });
       i++;
     }
 
@@ -744,7 +819,8 @@
     const stack = [];
     const open = item => {
       stack.push({ indent: item.indent, ordered: item.ordered });
-      html += item.ordered ? '<ol>' : '<ul>';
+      // eine nummerierte Liste beginnt mit der Nummer ihres ersten Punkts (CommonMark; v1.4.0), die folgenden zählt der Browser
+      html += item.ordered ? (item.num !== 1 && Number.isFinite(item.num) ? `<ol start="${item.num}">` : '<ol>') : '<ul>';
     };
     const close = () => { const s = stack.pop(); html += s.ordered ? '</ol>' : '</ul>'; };
     for (const item of items) {
@@ -780,5 +856,15 @@
     return makeText(highlight)(s);
   }
 
-  global.NoNotesMarkdown = { render, inline, escapeHtml, highlightText, subEntriesHtml, configure, pathInfo, pastePaths };
+    const markdown = { render, inline, escapeHtml, highlightText, subEntriesHtml, configure, pathInfo, pastePaths, highlightId, findHighlights, HIGHLIGHT_DEFAULT: 'gelb' };
+  /** Die 16 Farben des Hervorhebens (v1.4.0): [{ id (Deutsch, wie geschrieben), en (englischer Name), name (Anzeigename in der Sprache der Texte,
+   *  Gelb zuerst und als Vorgabe) }]; bei jedem Zugriff neu, damit der Name der Sprache folgt. */
+  Object.defineProperty(markdown, 'HIGHLIGHTS', {
+    enumerable: true,
+    get: () => {
+      const list = HL_DEFS.map(([id, en, label]) => ({ id, en, name: t(label), default: id === 'gelb' })); // i18n-dynamic: HL_DEFS
+      return list.filter(x => x.default).concat(list.filter(x => !x.default));
+    },
+  });
+  global.NoNotesMarkdown = markdown;
 })(window);

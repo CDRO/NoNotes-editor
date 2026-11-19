@@ -35,6 +35,52 @@
     return { text: text.slice(0, s) + before + sel + after + text.slice(e), selStart: s + before.length, selEnd: s + before.length + sel.length };
   }
 
+  // ---------- Hervorheben (v1.4.0): ==Text== und ==Text=={farbe} ----------
+  // Die Syntax liest NoNotesMarkdown (findHighlights, dasselbe wie die Vorschau); hier nur die Textänderungen der Toolleiste.
+
+  /** Die Hervorhebung, in der die Markierung (oder der Cursor) liegt: { start, end, innerStart, innerEnd, color (Kennung, null = gelb) } oder
+   *  null. Nur innerhalb einer Zeile; ein Cursor unmittelbar vor oder nach der Hervorhebung liegt nicht darin, eine Markierung genau um
+   *  sie herum schon. */
+  function highlightAt(text, s, e) {
+    const M = global.NoNotesMarkdown;
+    if (!M || !M.findHighlights) return null;
+    if (e == null) e = s;
+    const from = text.lastIndexOf('\n', s - 1) + 1;
+    let to = text.indexOf('\n', s);
+    if (to < 0) to = text.length;
+    if (e > to) return null;
+    for (const h of M.findHighlights(text.slice(from, to))) {
+      const a = from + h.start;
+      const b = from + h.end;
+      if (s >= a && e <= b && !(s === e && (s === a || s === b))) return { start: a, end: b, innerStart: from + h.innerStart, innerEnd: from + h.innerEnd, color: h.color };
+    }
+    return null;
+  }
+
+  /** Markierung hervorheben: `==sel==`, mit name (ein Farbname, so geschrieben wie er im Text stehen soll) als `==sel=={name}`; ohne name
+   *  gelb. Liegt die Markierung (oder der Cursor) schon in einer Hervorhebung, bekommt diese die neue Farbe. Ohne Markierung steht der
+   *  Platzhalter da (markiert). Leerraum am Rand der Markierung bleibt draussen. */
+  function highlight(text, s, e, name, placeholder) {
+    const suffix = name ? '{' + name + '}' : '';
+    const h = highlightAt(text, s, e);
+    if (h) {
+      const inner = text.slice(h.innerStart, h.innerEnd);
+      return { text: text.slice(0, h.start) + '==' + inner + '==' + suffix + text.slice(h.end), selStart: h.start + 2, selEnd: h.start + 2 + inner.length };
+    }
+    while (s < e && /\s/.test(text[s])) s++;
+    while (e > s && /\s/.test(text[e - 1])) e--;
+    const sel = text.slice(s, e) || placeholder || t('hervorgehoben');
+    return { text: text.slice(0, s) + '==' + sel + '==' + suffix + text.slice(e), selStart: s + 2, selEnd: s + 2 + sel.length };
+  }
+
+  /** Hervorhebung entfernen, in der die Markierung (oder der Cursor) liegt; null, wenn dort keine ist. */
+  function removeHighlight(text, s, e) {
+    const h = highlightAt(text, s, e);
+    if (!h) return null;
+    const inner = text.slice(h.innerStart, h.innerEnd);
+    return { text: text.slice(0, h.start) + inner + text.slice(h.end), selStart: h.start, selEnd: h.start + inner.length };
+  }
+
   const LIST_RE = /^(\s*)(?:[-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?/;
   const PREFIX_RE = {
     quote: /^(\s*)>\s?/,
@@ -250,6 +296,8 @@
     const counters = new Map(); // Einrückung → letzte Nummer
     for (let i = 0; i < lines.length; i++) {
       const item = parseItem(lines[i]);
+      // eine eingerückte Fortsetzungszeile gehört zum Listenpunkt davor (wie in der Vorschau): die Zählung läuft weiter (v1.4.0)
+      if (!item && counters.size && /^\s{2,}\S/.test(lines[i])) continue;
       if (!item || item.kind === 'quote' || item.kind === 'answer' || !lines[i].trim()) { counters.clear(); continue; }
       const level = item.indent.length;
       for (const k of [...counters.keys()]) if (k > level) counters.delete(k);
@@ -373,5 +421,5 @@
     return { text: out, selStart: s + snippet.length, selEnd: s + snippet.length };
   }
 
-  global.NoNotesEditing = { wrap, toggleList, togglePrefix, setHeading, codeBlock, link, wikiLink, horizontalRule, insert, lineBounds, continueLine, indentLines, renumberAll, parseItem };
+  global.NoNotesEditing = { wrap, highlight, removeHighlight, highlightAt, toggleList, togglePrefix, setHeading, codeBlock, link, wikiLink, horizontalRule, insert, lineBounds, continueLine, indentLines, renumberAll, parseItem };
 })(window);

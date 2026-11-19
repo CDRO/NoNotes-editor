@@ -147,6 +147,7 @@
     bold: () => svg([['path', { d: 'M4 2h5a3.5 3.5 0 0 1 2.4 6A3.5 3.5 0 0 1 9.5 14H4V2zm2 2v3h3a1.5 1.5 0 0 0 0-3H6zm0 5v3h3.5a1.5 1.5 0 0 0 0-3H6z' }]]),
     italic: () => svg([['path', { d: 'M6 2h7v2h-2.5l-2 8H11v2H4v-2h2.5l2-8H6z' }]]),
     strike: () => glyph('S', 'tb-strike'),
+    highlight: () => svg([['path', { d: 'M9.6 1.8l4.2 4.2-5.4 5.4H4.2V7.2z' }], ['rect', { x: 2, y: 12.8, width: 12, height: 2.2, rx: 0.6, class: 'tb-hl-bar' }]]),
     code: () => glyph('</>', 'tb-mono'),
     bullet: () => svg([['circle', { cx: 3, cy: 4, r: 1.3 }], ['rect', { x: 6, y: 3.2, width: 8, height: 1.6 }], ['circle', { cx: 3, cy: 8, r: 1.3 }],
       ['rect', { x: 6, y: 7.2, width: 8, height: 1.6 }], ['circle', { cx: 3, cy: 12, r: 1.3 }], ['rect', { x: 6, y: 11.2, width: 8, height: 1.6 }]]),
@@ -173,6 +174,7 @@
     ['bold', N_('Fett (Ctrl+B)'), N_('Fett')],
     ['italic', N_('Kursiv (Ctrl+I)'), N_('Kursiv')],
     ['strike', N_('Durchgestrichen'), N_('Durchgestrichen')],
+    ['highlight', N_('Hervorheben: Farbe wählen (Ctrl+Shift+H: gelb)'), N_('Hervorheben')],
     ['code', N_('Code'), N_('Code')],
     'sep',
     ['bullet', N_('Liste'), N_('Liste')],
@@ -300,7 +302,7 @@
       TOOLS.map(x => (x === 'sep' ? h('span', { className: 'tb-sep', 'aria-hidden': 'true' })
         : h('button', { type: 'button', id: (x[3] && ids[x[3]]) || null, dataset: x[0] === 'image' ? null : { cmd: x[0] }, className: x[0] === 'image' ? 'tb-image' : null,
           title: t(x[1]), 'aria-label': t(x[2]), // i18n-dynamic: TOOLS
-          'aria-haspopup': x[0] === 'table' ? 'dialog' : null, hidden: (x[0] === 'image' && !o.attachments) || !commandOn(x[0]) }, ICONS[x[0]]()))));
+          'aria-haspopup': x[0] === 'table' || x[0] === 'highlight' ? 'dialog' : null, hidden: (x[0] === 'image' && !o.attachments) || !commandOn(x[0]) }, ICONS[x[0]]()))));
     const kindSep = toolbar.querySelectorAll('.tb-sep')[3];   // vor Frage, Antwort und Entscheid: weg, wenn keiner der drei da ist
     const syncKindTools = () => {
       for (const cmd of ['question', 'answer', 'decision']) toolbar.querySelector(`[data-cmd="${cmd}"]`).hidden = !commandOn(cmd);
@@ -542,6 +544,7 @@
     function runCommand(cmd, anchor) {
       if (st.readOnly || !commandOn(cmd)) return;
       if (cmd === 'table') { openTablePicker(anchor || toolbar.querySelector('[data-cmd="table"]')); return; }
+      if (cmd === 'highlight' && anchor) { openHighlightPicker(anchor); return; }   // der Knopf: Farbe wählen; ohne Knopf (Taste, Gastgeber): gelb
       if (cmd === 'date') { insertDateAtLineEnd(); return; }
       if (cmd === 'image') { if (o.attachments) { fileInput.value = ''; fileInput.click(); } return; }
       const text = ta.value;
@@ -558,6 +561,11 @@
         case 'bold': r = E.wrap(text, s, e, '**', '**', word(t('Fett'))); break;
         case 'italic': r = E.wrap(text, s, e, '*', '*', word(t('Kursiv'))); break;
         case 'strike': r = E.wrap(text, s, e, '~~', '~~', word(t('Durchgestrichen'))); break;
+        case 'highlight': { // gelb; in einer gelben Hervorhebung nimmt es sie weg, in einer anderen färbt es sie gelb
+          const h = E.highlightAt(text, s, e);
+          r = h && !h.color ? E.removeHighlight(text, s, e) : E.highlight(text, s, e, '', t('hervorgehoben'));
+          break;
+        }
         case 'code': r = E.wrap(text, s, e, '`', '`', word(t('Code'))); break;
         case 'bullet': r = E.toggleList(text, s, e, 'bullet'); break;
         case 'ordered': r = E.toggleList(text, s, e, 'ordered'); break;
@@ -1085,6 +1093,81 @@
       if (!picker || picker.box.hidden) return;
       picker.box.hidden = true;
       if (picker.anchor) picker.anchor.setAttribute('aria-expanded', 'false');
+      if (backToText) ta.focus();
+    }
+
+    // ---------- Hervorheben (v1.4.0): Auswahl der Farbe ----------
+    // Knopf «Hervorheben» öffnet 16 Farbfelder (Gelb zuerst, die Vorgabe) und «Hervorhebung entfernen»; gebaut und geschlossen wie das Raster
+    // der Tabellen. Geschrieben wird der deutsche Name, bei einer anderen Sprache der Texte der englische (==Text=={red}).
+
+    let hlPicker = null;
+    const outsideHl = e => {
+      if (hlPicker && !hlPicker.box.hidden && !hlPicker.box.contains(e.target) && !(hlPicker.anchor && hlPicker.anchor.contains(e.target))) closeHighlightPicker(false);
+    };
+
+    function highlightPicker() {
+      if (hlPicker) return hlPicker;
+      const swatches = h('div', { className: 'hl-swatches', role: 'group', 'aria-label': t('Farbe der Hervorhebung') });
+      const remove = h('button', { type: 'button', className: 'hl-remove' }, t('Hervorhebung entfernen'));
+      const box = h('div', { className: 'hl-picker', id: ids.highlightPicker || null, hidden: true, role: 'dialog', 'aria-label': t('Hervorheben') }, swatches, remove);
+      root.appendChild(box);
+      const p = { box, swatches, remove, sel: null, anchor: null };
+      const apply = id => {
+        const sel = p.sel;
+        const entry = M.HIGHLIGHTS.find(x => x.id === id);
+        const name = !entry || id === M.HIGHLIGHT_DEFAULT ? '' : (L.language().split('-')[0] === 'de' ? id : entry.en);
+        closeHighlightPicker(false);
+        applyEdit(E.highlight(ta.value, sel.s, sel.e, name, t('hervorgehoben')));
+      };
+      swatches.addEventListener('click', e => { const b = e.target.closest('button[data-color]'); if (b) apply(b.dataset.color); });
+      remove.addEventListener('click', () => {
+        const sel = p.sel;
+        const r = E.removeHighlight(ta.value, sel.s, sel.e);
+        closeHighlightPicker(false);
+        if (r) applyEdit(r); else ta.focus();
+      });
+      box.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeHighlightPicker(true); return; }
+        const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 8, ArrowUp: -8 }[e.key];
+        const all = [...swatches.querySelectorAll('button')];
+        const at = all.indexOf(document.activeElement);
+        if (step && at >= 0) { e.preventDefault(); const next = at + step; if (next >= 0 && next < all.length) all[next].focus(); else if (step === 8) remove.focus(); }
+        else if (step === -8 && document.activeElement === remove) { e.preventDefault(); all[all.length - 1].focus(); }
+      });
+      hlPicker = p;
+      return p;
+    }
+
+    function openHighlightPicker(anchor) {
+      if (st.readOnly) return;
+      const p = highlightPicker();
+      if (!p.box.hidden) { closeHighlightPicker(true); return; }
+      p.sel = { s: ta.selectionStart || 0, e: ta.selectionEnd || 0 };
+      p.anchor = anchor || null;
+      const cur = E.highlightAt(ta.value, p.sel.s, p.sel.e);
+      p.swatches.textContent = '';
+      for (const c of M.HIGHLIGHTS) {
+        const on = cur && (cur.color || M.HIGHLIGHT_DEFAULT) === c.id;
+        p.swatches.appendChild(h('button', { type: 'button', className: `hl-sw md-hl-${c.id}${c.default ? ' md-hl-default' : ''}${on ? ' current' : ''}`, dataset: { color: c.id },
+          title: c.default ? t('{farbe} (Vorgabe)', { farbe: c.name }) : c.name, 'aria-label': c.default ? t('{farbe} (Vorgabe)', { farbe: c.name }) : c.name, 'aria-pressed': on ? 'true' : 'false' }));
+      }
+      p.remove.disabled = !cur;
+      p.box.hidden = false;
+      const a = (anchor || ta).getBoundingClientRect();
+      const w = p.box.offsetWidth;
+      const bh = p.box.offsetHeight;
+      p.box.style.left = `${Math.max(8, Math.min(a.left, global.innerWidth - w - 8))}px`;
+      p.box.style.top = `${a.bottom + 6 + bh <= global.innerHeight - 8 ? a.bottom + 6 : Math.max(8, a.top - bh - 6)}px`;
+      if (anchor) anchor.setAttribute('aria-expanded', 'true');
+      document.addEventListener('pointerdown', outsideHl, true);
+      (p.swatches.querySelector('.current') || p.swatches.firstChild).focus();
+    }
+
+    function closeHighlightPicker(backToText) {
+      document.removeEventListener('pointerdown', outsideHl, true);
+      if (!hlPicker || hlPicker.box.hidden) return;
+      hlPicker.box.hidden = true;
+      if (hlPicker.anchor) hlPicker.anchor.setAttribute('aria-expanded', 'false');
       if (backToText) ta.focus();
     }
 
@@ -1839,7 +1922,7 @@
       if (!mod || e.altKey) return;
       const k = e.key.toLowerCase();
       if (e.shiftKey) {
-        const cmd = { f: 'question', a: 'answer', d: 'decision' }[k];
+        const cmd = { f: 'question', a: 'answer', d: 'decision', h: 'highlight' }[k];
         if (cmd) { e.preventDefault(); runCommand(cmd); }
         return;
       }
@@ -1850,7 +1933,7 @@
     /** Tasten im ganzen Editor: Ctrl+E wechselt die Darstellung, F1 öffnet die Hilfe des Gastgebers, Ctrl+S speichert sofort. */
     function onRootKeydown(e) {
       const mod = e.ctrlKey || e.metaKey;
-      if (e.target.closest && e.target.closest('.table-picker')) return;
+      if (e.target.closest && e.target.closest('.table-picker, .hl-picker')) return;
       if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e' && o.modeKeys !== false) { e.preventDefault(); e.stopPropagation(); cycleMode(); }
       else if (e.key === 'F1' && o.help) { e.preventDefault(); e.stopPropagation(); o.help(api); }
       else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's' && o.onChange) saveNow();
@@ -1876,7 +1959,7 @@
         strip.hidden = st.readOnly || !Number(strip.dataset.count || 0);
         root.classList.toggle('nn-tools-hidden', st.readOnly);
       }
-      if (st.readOnly) { closeMentionPopup(); closeWikiPopup(); closeDatePicker(); closeTablePicker(false); endPlaceholders(); }
+      if (st.readOnly) { closeMentionPopup(); closeWikiPopup(); closeDatePicker(); closeTablePicker(false); closeHighlightPicker(false); endPlaceholders(); }
       for (const x of strip.querySelectorAll('button')) x.disabled = st.readOnly;
       if (st.mode && st.mode !== 'edit') renderPreview(); // Kästchen und Antwortknöpfe folgen
     }
@@ -2101,13 +2184,14 @@
       renderAttachments,
       addAttachments,
       forgetAttachment: forgetAttachmentUrl,
-      closePopups: () => { closeMentionPopup(); closeWikiPopup(); closeDatePicker(); closeTablePicker(false); endPlaceholders(); },
+      closePopups: () => { closeMentionPopup(); closeWikiPopup(); closeDatePicker(); closeTablePicker(false); closeHighlightPicker(false); endPlaceholders(); },
       get previewed() { return st.previewed == null ? null : st.previewed; },
       destroy() {
         st.destroyed = true;
         clearTimeout(st.saveTimer);
         clearTimeout(st.previewTimer);
         closeTablePicker(false);
+        closeHighlightPicker(false);
         closeDatePicker();
         if (phField) phField.removeEventListener('keydown', onFieldKeydown);
         global.removeEventListener('keyup', offCtrl);

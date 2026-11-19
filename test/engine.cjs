@@ -1123,6 +1123,98 @@ async function runQuestionKinds(browser, part) {
   part('Text unverändert');
 }
 
+// ============================================================
+/* v1.4.0: nummerierte Listen behalten ihre Startnummer; Hervorheben ==Text== und ==Text=={farbe} (Vorschau, Farben, Textänderungen). */
+async function runV14(browser, part) {
+  const s = load();
+  const M = s.NoNotesMarkdown;
+  const E = s.NoNotesEditing;
+  const L = s.NoNotesEditorLabels;
+  const sq = h => h.replace(/\n/g, '');
+  const r = x => [x.text, x.selStart, x.selEnd];
+
+  // 1. Startnummer
+  assert.equal(sq(M.render('# Titel\n4. Vierter Punkt')), '<h1>Titel</h1><ol start="4"><li>Vierter Punkt</li></ol>', 'Liste nach einem Titel beginnt bei 4');
+  assert.equal(sq(M.render('1. a\n2. b')), '<ol><li>a</li><li>b</li></ol>', 'ab 1: kein start');
+  assert.equal(sq(M.render('0. a\n1. b')), '<ol start="0"><li>a</li><li>b</li></ol>', 'auch 0');
+  assert.equal(sq(M.render('7) a\n8) b')), '<ol start="7"><li>a</li><li>b</li></ol>', 'mit «)»');
+  assert.equal(sq(M.render('- a\n  3. b\n  4. c\n- d')), '<ul><li>a<ol start="3"><li>b</li><li>c</li></ol></li><li>d</li></ul>', 'verschachtelt');
+  assert.equal(sq(M.render('1. a\n   5. b\n2. c')), '<ol><li>a<ol start="5"><li>b</li></ol></li><li>c</li></ol>', 'Unterliste mit eigener Startnummer, Hauptliste ab 1');
+  assert.equal(sq(M.render('2. Zweiter\n  mehr Text\n3. Dritter')), '<ol start="2"><li>Zweiter<br>mehr Text</li><li>Dritter</li></ol>', 'Fortsetzungszeile gehört zu Punkt 2, die Liste läuft mit 3 weiter');
+  assert.equal(sq(M.render('3. [ ] Aufgabe').replace(/ data-line="\d+"/, '')).startsWith('<ol start="3"><li class="task">'), true, 'Aufgabe in nummerierter Liste');
+  part('Nummerierte Liste: start nur wenn die erste Nummer nicht 1 ist, auch verschachtelt; Fortsetzungszeile');
+  assert.equal(E.renumberAll('# T\n4. a\n7. b\n9. c'), '# T\n4. a\n5. b\n6. c', 'renumberAll behält die Startnummer');
+  assert.equal(E.renumberAll('2. Zweiter\n  mehr Text\n9. Dritter'), '2. Zweiter\n  mehr Text\n3. Dritter', 'Fortsetzungszeile unterbricht die Zählung nicht');
+  assert.equal(E.renumberAll('1. a\n\n5. b'), '1. a\n\n5. b', 'eine Leerzeile beginnt eine neue Liste');
+  let t = '# T\n4. Vier';
+  assert.deepEqual(r(E.continueLine(t, t.length, t.length)), ['# T\n4. Vier\n5. ', 15, 15], 'Enter führt mit 5 weiter');
+  t = '2. Zweiter\n  mehr Text\n3. Dritter';
+  assert.deepEqual(r(E.continueLine(t, t.length, t.length)), [t + '\n4. ', t.length + 4, t.length + 4], 'Enter nach Fortsetzungszeile: 4');
+  part('Bearbeiten: renumberAll und Enter behalten die Startnummer');
+
+  // 2. Hervorheben in der Vorschau
+  const mk = (cls, inner) => `<mark class="md-hl md-hl-${cls}">${inner}</mark>`;
+  assert.equal(sq(M.render('==Text==')), `<p>${mk('gelb md-hl-default', 'Text')}</p>`, 'gelb');
+  assert.equal(sq(M.render('==Text=={rot}')), `<p>${mk('rot', 'Text')}</p>`);
+  assert.equal(sq(M.render('==a=={Red} ==b=={GRÜN} ==c=={gruen} ==d=={Türkis} ==e=={tuerkis} ==f=={teal} ==g=={Gray}')),
+    `<p>${mk('rot', 'a')} ${mk('gruen', 'b')} ${mk('gruen', 'c')} ${mk('tuerkis', 'd')} ${mk('tuerkis', 'e')} ${mk('tuerkis', 'f')} ${mk('grau', 'g')}</p>`, 'englisch, Gross und klein, Umlaut');
+  assert.equal(sq(M.render('==Text=={gelb}')), `<p>${mk('gelb', 'Text')}</p>`, '{gelb} ist die Farbe der Familie (ohne md-hl-default)');
+  const ids = M.HIGHLIGHTS.map(x => x.id);
+  assert.equal(ids.length, 16);
+  assert.equal(ids[0], 'gelb');
+  assert.deepEqual([...ids].sort(), ['bernstein', 'blau', 'cyan', 'gelb', 'gruen', 'grau', 'himmelblau', 'indigo', 'limette', 'orange', 'pink', 'purpur', 'rot', 'smaragd', 'tuerkis', 'violett'].sort());
+  for (const c of M.HIGHLIGHTS) {
+    assert.ok(sq(M.render(`==x=={${c.id}}`)).includes(`md-hl-${c.id}`), c.id);
+    assert.ok(sq(M.render(`==x=={${c.en}}`)).includes(`md-hl-${c.id}`), c.en);
+  }
+  assert.deepEqual(M.HIGHLIGHTS.find(x => x.id === 'gruen'), { id: 'gruen', en: 'green', name: 'Grün', default: false });
+  L.configure({ language: 'en' });
+  assert.equal(M.HIGHLIGHTS.find(x => x.id === 'gruen').name, 'Green');
+  assert.equal(M.HIGHLIGHTS.find(x => x.id === 'himmelblau').name, 'Sky');
+  L.configure({ language: 'de' });
+  part('Hervorheben: gelb, Farben deutsch und englisch, HIGHLIGHTS');
+
+  assert.equal(sq(M.render('==**fett** und [Link](https://a.ch)==')), `<p>${mk('gelb md-hl-default', '<strong>fett</strong> und <a href="https://a.ch" target="_blank" rel="noopener noreferrer">Link</a>')}</p>`, 'Markdown innen');
+  assert.equal(sq(M.render('==a==b==c==')), `<p>${mk('gelb md-hl-default', 'a')}b${mk('gelb md-hl-default', 'c')}</p>`, 'mehrere in einer Zeile');
+  assert.equal(sq(M.render('- [ ] ==wichtig=={rot} >31.12.2099')).includes('md-hl-rot'), true, 'in Aufgaben');
+  assert.equal(sq(M.render('# ==Titel==')), `<h1>${mk('gelb md-hl-default', 'Titel')}</h1>`, 'in Überschriften');
+  assert.equal(sq(M.render('| a |\n|---|\n| ==x=={blau} |')).includes(mk('blau', 'x')), true, 'in Tabellenfeldern');
+  assert.equal(sq(M.render('Code `==x==` hier')), '<p>Code <code>==x==</code> hier</p>', 'nicht in Code');
+  assert.equal(sq(M.render('```\n==x==\n```')), '<pre><code>==x==</code></pre>', 'nicht im Codeblock');
+  assert.equal(sq(M.render('==a `==` b==')), `<p>${mk('gelb md-hl-default', 'a <code>==</code> b')}</p>`, '«==» im Code schliesst nicht');
+  assert.equal(sq(M.render('\\==x==')), '<p>\\==x==</p>', '\\== bleibt Text');
+  assert.equal(sq(M.render('==x=={foo}')), `<p>${mk('gelb md-hl-default', 'x')}{foo}</p>`, 'unbekannter Name: gelb, {foo} bleibt Text');
+  for (const lit of ['==', '====', '== ==', '==offen', 'a == b == c', '== x ==', '==x ==']) assert.equal(sq(M.render(lit)), `<p>${lit}</p>`, `bleibt Text: ${lit}`);
+  assert.equal(sq(M.render('==<b>==')), `<p>${mk('gelb md-hl-default', '&lt;b&gt;')}</p>`, 'maskiert');
+  part('Hervorheben: Markdown innen, nicht in Code, \\==, unbekannter Name, leer oder offen bleibt Text');
+
+  // Suchtreffer bleiben ein blosses <mark>
+  const found = M.render('Das ist ==gelb== und klar', { highlight: 'klar' });
+  assert.ok(found.includes('<mark>klar</mark>') && found.includes('class="md-hl'), found);
+  assert.equal(M.highlightText('abc', 'b'), 'a<mark>b</mark>c');
+  assert.equal(M.inline('==x=={rot}'), mk('rot', 'x'));
+  part('Suchtreffer: blosses <mark>, nicht md-hl');
+
+  // 3. Textänderungen
+  assert.deepEqual(r(E.highlight('ab cd', 3, 5, '')), ['ab ==cd==', 5, 7], 'gelb');
+  assert.deepEqual(r(E.highlight('ab cd', 3, 5, 'rot')), ['ab ==cd=={rot}', 5, 7], 'Farbe');
+  assert.deepEqual(r(E.highlight('ab cd', 3, 5, 'red')), ['ab ==cd=={red}', 5, 7], 'englischer Name wie übergeben');
+  assert.deepEqual(r(E.highlight('ab', 1, 1, '', 'hervorgehoben')), ['a==hervorgehoben==b', 3, 16], 'ohne Markierung: Platzhalter markiert');
+  assert.deepEqual(r(E.highlight('ab', 1, 1, 'blau')), ['a==hervorgehoben=={blau}b', 3, 16], 'Platzhalter aus dem Katalog');
+  assert.deepEqual(r(E.highlight('a  bc ', 0, 6, '')), ['==a  bc== ', 2, 7], 'Leerraum am Rand bleibt draussen');
+  assert.deepEqual(r(E.highlight('x ==ab== y', 5, 5, 'rot')), ['x ==ab=={rot} y', 4, 6], 'Cursor in einer Hervorhebung: Farbe ändern');
+  assert.deepEqual(r(E.highlight('x ==ab=={rot} y', 4, 6, '')), ['x ==ab== y', 4, 6], 'zurück auf gelb');
+  assert.deepEqual(r(E.highlight('x ==ab=={rot} y', 2, 13, 'blau')), ['x ==ab=={blau} y', 4, 6], 'Markierung samt Zeichen: auch Farbe ändern');
+  assert.deepEqual(r(E.removeHighlight('x ==ab=={rot} y', 6, 6)), ['x ab y', 2, 4], 'entfernen');
+  assert.equal(E.removeHighlight('x ab y', 3, 3), null, 'keine Hervorhebung: null');
+  assert.equal(E.highlightAt('==ab==', 6, 6), null, 'Cursor unmittelbar dahinter liegt nicht darin');
+  assert.equal(E.highlightAt('==ab==', 0, 0), null, 'und nicht davor');
+  assert.ok(E.highlightAt('==ab==', 2, 2) && E.highlightAt('==ab==', 0, 6), 'innen und umschlossen');
+  assert.equal(E.highlightAt('`==ab==`', 4, 4), null, 'Code ist keine Hervorhebung');
+  assert.equal(E.highlightAt('==a==\n==b==', 8, 8) && E.highlightAt('==a==\n==b==', 8, 8).start, 6, 'zweite Zeile');
+  part('Textänderungen: hervorheben, Farbe ändern, entfernen, Platzhalter, Leerraum');
+}
+
 suite('Engine-Test', [
   { name: 'Texte: Katalog de/en, Übersetzer des Gastgebers, Ersetzungen gewinnen, Mehrzahl, ohne DOM', run: runLabels },
   { name: 'Toolleiste und Tasten (editing.js), Vorschläge für @kürzel (mentions.js)', run: runEditing },
@@ -1136,4 +1228,5 @@ suite('Engine-Test', [
   { name: 'Termine mit «>» (v3.0.0): Schreibweise, Frist und Erinnerungen, Umschreiben alter Texte', run: runDatesV3 },
   { name: 'Verweise mit eigenen Zielen (v1.1.0): href, title, Klassen, data-*', run: runRefTargets },
   { name: 'Fragen und Entscheide einzeln abschaltbar (v1.3.0): parse, parseBlock, render, Block, Text unverändert', run: runQuestionKinds },
+  { name: 'v1.4.0: Startnummer nummerierter Listen, Hervorheben ==Text== mit 16 Farben (Vorschau, Textänderungen)', run: runV14 },
 ]);

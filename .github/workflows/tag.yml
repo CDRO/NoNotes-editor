@@ -16,7 +16,7 @@ permissions:
 jobs:
   tag:
     name: Testen und Tag anlegen
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.56 kennt Ubuntu 26.04 (seit November 2026 «ubuntu-latest») noch nicht
     steps:
       - name: Code holen
         uses: actions/checkout@v5

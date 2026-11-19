@@ -1,6 +1,6 @@
 # NoNotes-editor – Entwurf
 
-Stand v1.1.0 (2026-10-31). Herausgelöst aus NoNotes v3.3.0; was v1.1.0 dazubringt, steht in 4a. Kurz und verbindlich für alle Gastgeber: NoNotes, SteeringBoard,
+Stand v1.4.0 (2026-11-19). Herausgelöst aus NoNotes v3.3.0; was v1.1.0 dazubringt, steht in 4a (v1.2.0: 4b, v1.3.0: 4c, v1.4.0: 4d). Kurz und verbindlich für alle Gastgeber: NoNotes, SteeringBoard,
 NoNotes-SaaS und die Erweiterungen in NoNotes-plugins.
 
 ## 1. Ziele
@@ -191,6 +191,52 @@ Ist eine Art **aus**:
   ist Eingabehilfe beim Schreiben, nicht Bedeutung.
 - Keine neuen oder geänderten Schlüssel im Katalog.
 
+## 4d. Neu in v1.4.0 (Startnummer nummerierter Listen, Hervorheben)
+
+Nur Ergänzungen: ohne die neue Syntax und ohne den neuen Knopf bleibt alles wie in v1.3.0 (ausser dass eine Liste, die nicht bei 1 beginnt, jetzt
+bei ihrer Nummer beginnt).
+
+**Nummerierte Listen behalten ihre Startnummer** (Regel von CommonMark). Eine nummerierte Liste beginnt mit der Nummer ihres ersten Punkts:
+`<ol start="4">`, wenn diese nicht 1 ist (auch `0`, auch mit «)», auch für eine Unterliste); bei 1 bleibt es `<ol>`. Die folgenden Punkte zählt der
+Browser. Eine eingerückte Fortsetzungszeile (`2. Zweiter⏎  mehr Text⏎3. Dritter`) gehört zu Punkt 2, die Liste läuft mit 3 weiter.
+`NoNotesEditing.renumberAll` behält die Startnummer jeder Liste und zählt jetzt auch über eingerückte Fortsetzungszeilen weiter (vorher
+unterbrach sie die Zählung); Enter am Ende eines Punkts führt mit der nächsten Nummer weiter.
+
+**Hervorheben** `==Text==` (gelb) und `==Text=={farbe}`:
+
+| Regel | Verhalten |
+| --- | --- |
+| Ausgabe | `<mark class="md-hl md-hl-<kennung>">…</mark>`; das schlichte `==Text==` und ein unbekannter Name tragen zusätzlich `md-hl-default` und die Kennung `gelb` |
+| Farben | die 16 Knotenfarben von «tag-colors»: rot/red, orange, bernstein/amber, gelb/yellow, limette/lime, gruen\|grün/green, smaragd/emerald, tuerkis\|türkis/teal, cyan, himmelblau/sky, blau/blue, indigo, violett/violet, purpur/purple, pink, grau/gray (auch grey); deutsch oder englisch, Gross-/Kleinschreibung egal; die Kennung in der Klasse ist immer die deutsche ohne Umlaut |
+| Suffix | `{farbe}` direkt hinter dem schliessenden `==`. Ein unbekannter Name (`==Text=={foo}`) gibt die gelbe Hervorhebung, `{foo}` bleibt Text |
+| Innen | Markdown wirkt (fett, Links, Code …). Das erste und das letzte Zeichen innen sind kein Leerraum und kein `=`; `==`, `==  ==`, `==offen`, `== x ==`, `====` bleiben Text |
+| Code | nicht in Code-Spans und Codeblöcken; ein `==` innerhalb eines Code-Spans schliesst nicht |
+| Maskieren | `\==` bleibt Text, wie geschrieben (mit dem Schrägstrich; die Engine kennt sonst kein Maskieren) |
+| Suchtreffer | `makeText(highlight)` schreibt weiter ein blosses `<mark>`; `editor.css` gestaltet die Klassen `mark.md-hl` und `.md mark:not(.md-hl)` (Suchtreffer: orange mit Rand) verschieden |
+
+*Farben (`editor.css`):* die Füllung je Farbe als Variable `--hl` (hell / dunkel unter `prefers-color-scheme: dark`), der Text behält seine Farbe, kein
+Schraffieren; `print-color-adjust: exact` für den Druck. Das **schlichte Gelb** ist kräftiger (hell `#fff08a`, dunkel `#6b5a0c`), weil das blasse
+`#fdf6d3` der Farbfamilie als Leuchtstift zu schwach ist; `==Text=={gelb}` hat das blasse Gelb der Familie. Hell/dunkel: rot #fad6d6/#421f1f, orange #fde4d3/#442c1d,
+bernstein #fdeed3/#44361d, gelb #fdf6d3/#443e1d, limette #eef9d7/#364120, gruen #daf6df/#233e28, smaragd #d8f8eb/#214033, tuerkis #d8f8f5/#21403d, cyan #d6f5fa/#1f3d42,
+himmelblau #d5edfc/#1e3543, blau #d6e2fa/#1f2b42, indigo #d9d9f7/#22223f, violett #e4d8f8/#2c2140, purpur #f0d9f7/#37223f, pink #f9d7e8/#412030, grau #e6e7ea/#2f3032.
+Gastgeber mit eigenem Umschalter für hell/dunkel überschreiben `--hl` je Klasse (`.md-hl-rot { --hl: … }`).
+
+*Engine:* `NoNotesMarkdown.HIGHLIGHTS` → `[{ id, en, name, default }]` (Gelb zuerst; `name` über `t()` in der Sprache der Texte, bei jedem Zugriff neu),
+`HIGHLIGHT_DEFAULT` (`'gelb'`), `highlightId(name)` (Name → Kennung oder `null`), `findHighlights(zeile)` (alle Hervorhebungen einer Zeile mit Stellen).
+
+*Toolleiste:* Knopf **Hervorheben** (`data-cmd="highlight"`, nach Durchgestrichen, vor Code). Ein Klick öffnet ein kleines Fenster (`.hl-picker`, gebaut und
+geschlossen wie das Raster der Tabellen: Esc, Klick daneben, der Knopf noch einmal) mit den 16 Farbfeldern (Gelb zuerst, als «(Vorgabe)» beschriftet;
+Titel = Farbname über `t()`; Pfeiltasten wechseln, Enter wählt; die aktuelle Farbe ist markiert) und «Hervorhebung entfernen» (gesperrt, wo keine ist).
+Die Wahl umschliesst die Markierung: gelb → `==Text==`, sonst `==Text=={rot}`; bei deutschen Texten steht die deutsche Kennung, bei jeder anderen
+Sprache der englische Name (`{red}`). Liegt die Markierung (oder der Cursor) schon in einer Hervorhebung, bekommt diese die neue Farbe. Ohne Markierung
+steht das Platzhalterwort da (`hervorgehoben`, englisch `highlighted`), markiert. Leerraum am Rand der Markierung bleibt draussen.
+**Ctrl+Shift+H** (Cmd auf dem Mac) setzt gelb ohne Fenster; in einer gelben Hervorhebung nimmt es sie weg, in einer anderen färbt es sie gelb
+(die Taste ist im Editor frei; Firefox belegt sie im Browser selbst, der Editor fängt sie im Textfeld ab). `ed.runCommand('highlight')` ohne Knopf wirkt wie die Taste;
+mit dem Knopf als zweitem Argument öffnet es das Fenster. Die reinen Textfunktionen stehen in `editing.js`: `NoNotesEditing.highlight(text, s, e, name, platzhalter)`,
+`removeHighlight(text, s, e)`, `highlightAt(text, s, e)`.
+
+*Katalog:* neue Schlüssel `Hervorheben`, `hervorgehoben`, `Hervorheben: Farbe wählen (Ctrl+Shift+H: gelb)`, `Hervorhebung entfernen`, `Farbe der Hervorhebung`, `{farbe} (Vorgabe)` und die 16 Farbnamen (`Rot`, `Orange`, `Bernstein`, `Gelb`, `Limette`, `Grün`, `Smaragd`, `Türkis`, `Cyan`, `Himmelblau`, `Blau`, `Indigo`, `Violett`, `Purpur`, `Pink`, `Grau`); auf Englisch in `lang/editor.en.js`. Gastgeber mit eigenen Sprachpaketen ergänzen sie.
+
 ## 5. Texte und Ersetzungen
 
 Der deutsche Text (Schweiz, `ss`) im Quelltext ist der Schlüssel, wie in NoNotes. `lang/editor.de.js` ist der Katalog aller Schlüssel
@@ -255,7 +301,7 @@ unter `:where(:root)` und verlieren gegen jede Angabe des Gastgebers. Themes und
 `test/core.cjs`, die nur die Engine prüfen: Videos, mehrzeilige Einträge, Tabellen, Tabellen mit Rahmen, Personen und Tabellenfelder, Pfade,
 Platzhalter, Termine) + `test/editor.cjs` (Chromium per `file://` auf `test/page/index.html`: Aufbau, Darstellungen, Toolleiste, Tasten,
 Aufgaben in der Vorschau, Speichern und Konflikt, @kürzel, Verweise, Datumsauswahl, Tabellen, Platzhalter, Bilder, Erweiterungen,
-Schreibschutz, Englisch mit Ersetzung; seit v1.1.0 die Wünsche E1–E5, die Engine prüft Verweisziele). Chromium: `NONOTES_EDITOR_CHROMIUM` (oder `STEERINGBOARD_CHROMIUM`) nennt ein vorhandenes
+Schreibschutz, Englisch mit Ersetzung; seit v1.1.0 die Wünsche E1–E5, die Engine prüft Verweisziele; seit v1.4.0 Hervorheben und Startnummern). Chromium: `NONOTES_EDITOR_CHROMIUM` (oder `STEERINGBOARD_CHROMIUM`) nennt ein vorhandenes
 Programm, sonst das von Playwright. Was Datenbank, Export, Agenten und die App braucht, testet weiter NoNotes – gegen das Paket.
 
 ## 8. Versionen und Tags

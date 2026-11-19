@@ -2,6 +2,23 @@
 
 Semantische Versionen (siehe [docs/DESIGN.md](docs/DESIGN.md) §8). Ein Release ist ein Tag; Gastgeber zeigen in `devDependencies` darauf.
 
+## v1.4.0 (2026-11-19)
+
+Startnummer nummerierter Listen und Hervorheben von Text; nur Ergänzungen, Einzelheiten in [docs/DESIGN.md](docs/DESIGN.md) §4d. Neue Schlüssel im
+Katalog (`Hervorheben`, `hervorgehoben`, `Hervorheben: Farbe wählen (Ctrl+Shift+H: gelb)`, `Hervorhebung entfernen`, `Farbe der Hervorhebung`, `{farbe} (Vorgabe)` und die 16 Farbnamen (`Rot`, `Orange`, `Bernstein`, `Gelb`, `Limette`, `Grün`, `Smaragd`, `Türkis`, `Cyan`, `Himmelblau`, `Blau`, `Indigo`, `Violett`, `Purpur`, `Pink`, `Grau`)): Gastgeber mit eigenen Sprachpaketen ergänzen sie.
+
+- **Nummerierte Listen behalten ihre Startnummer** (CommonMark): `<ol start="4">`, wenn der erste Punkt nicht 1 ist, auch in Unterlisten
+  («# Titel⏎4. Vierter Punkt» beginnt bei 4 statt bei 1). Eine eingerückte Fortsetzungszeile gehört zum Punkt davor. `renumberAll` behält die
+  Startnummer und zählt über Fortsetzungszeilen weiter; Enter führt die Liste weiter.
+- **Hervorheben:** `==Text==` gelb, `==Text=={farbe}` in einer der 16 Knotenfarben von «tag-colors» (deutsch oder englisch, Gross-/Kleinschreibung
+  und Umlaute egal; ein unbekannter Name gibt gelb und bleibt als Text stehen). Ausgabe `<mark class="md-hl md-hl-<kennung>">`, Markdown wirkt
+  innen, nicht in Code, `\==` bleibt Text, leer oder offen bleibt Text. Das schlichte Gelb ist kräftiger als das `{gelb}` der Familie.
+  `editor.css`: helle und dunkle Füllung (Variable `--hl`), Druck exakt; Suchtreffer (blosses `<mark>`) sehen anders aus.
+  `NoNotesMarkdown.HIGHLIGHTS`, `HIGHLIGHT_DEFAULT`, `highlightId`, `findHighlights`.
+- **Toolleiste:** Knopf «Hervorheben» (nach Durchgestrichen) mit Farbfenster (16 Farben, Gelb zuerst) und «Hervorhebung entfernen»; ändert die Farbe, wenn
+  die Markierung schon in einer Hervorhebung liegt; Platzhalterwort «hervorgehoben» / «highlighted». **Ctrl+Shift+H** setzt gelb (schaltet gelb aus).
+  `NoNotesEditing.highlight`, `removeHighlight`, `highlightAt`; `ed.runCommand('highlight')`.
+
 ## v1.3.0 (2026-11-04)
 
 Wunsch E9 von SteeringBoard (`docs/WUENSCHE-AN-DEN-KERN.md` dort): Fragen und Entscheide je Editor einzeln abschaltbar. Wahlweise und

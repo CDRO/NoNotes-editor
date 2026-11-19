@@ -237,6 +237,61 @@ a.md-path { text-decoration: none; border-bottom: 1px dotted currentColor; overf
 .body.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .md img.md-att { max-height: 480px; }
 .md-missing { color: var(--danger); font-size: .9em; }
+/* Hervorheben (v1.4.0): ==Text== und ==Text=={farbe} wird <mark class="md-hl md-hl-<kennung>">. Die 16 Farben sind die Knotenfarben von «tag-colors»
+   (Füllung hell/dunkel); der Text behält seine Farbe. Das schlichte ==Text== (und ein unbekannter Name) trägt zusätzlich md-hl-default und
+   ist ein kräftigeres Gelb, damit es wie ein Leuchtstift wirkt; {gelb} ist das blasse Gelb der Farbfamilie. Ein Gastgeber kann die Variable
+   --hl je Klasse überschreiben. Die Suchtreffer (ein blosses <mark> ohne Klasse) sehen anders aus: orange mit Rand. */
+mark.md-hl { background: var(--hl, #fdf6d3); color: inherit; padding: 0 .15em; margin: 0 -.05em; border-radius: 3px;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; outline: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.md mark:not(.md-hl) { background: #ffcf70; color: #1c1e22; border-radius: 3px; padding: 0 .1em; box-shadow: 0 0 0 1px #e08a00; }
+.md-hl-rot { --hl: #fad6d6; }
+.md-hl-orange { --hl: #fde4d3; }
+.md-hl-bernstein { --hl: #fdeed3; }
+.md-hl-gelb { --hl: #fdf6d3; }
+.md-hl-limette { --hl: #eef9d7; }
+.md-hl-gruen { --hl: #daf6df; }
+.md-hl-smaragd { --hl: #d8f8eb; }
+.md-hl-tuerkis { --hl: #d8f8f5; }
+.md-hl-cyan { --hl: #d6f5fa; }
+.md-hl-himmelblau { --hl: #d5edfc; }
+.md-hl-blau { --hl: #d6e2fa; }
+.md-hl-indigo { --hl: #d9d9f7; }
+.md-hl-violett { --hl: #e4d8f8; }
+.md-hl-purpur { --hl: #f0d9f7; }
+.md-hl-pink { --hl: #f9d7e8; }
+.md-hl-grau { --hl: #e6e7ea; }
+.md-hl-gelb.md-hl-default { --hl: #fff08a; }
+@media (prefers-color-scheme: dark) {
+  .md-hl-rot { --hl: #421f1f; }
+  .md-hl-orange { --hl: #442c1d; }
+  .md-hl-bernstein { --hl: #44361d; }
+  .md-hl-gelb { --hl: #443e1d; }
+  .md-hl-limette { --hl: #364120; }
+  .md-hl-gruen { --hl: #233e28; }
+  .md-hl-smaragd { --hl: #214033; }
+  .md-hl-tuerkis { --hl: #21403d; }
+  .md-hl-cyan { --hl: #1f3d42; }
+  .md-hl-himmelblau { --hl: #1e3543; }
+  .md-hl-blau { --hl: #1f2b42; }
+  .md-hl-indigo { --hl: #22223f; }
+  .md-hl-violett { --hl: #2c2140; }
+  .md-hl-purpur { --hl: #37223f; }
+  .md-hl-pink { --hl: #412030; }
+  .md-hl-grau { --hl: #2f3032; }
+  .md-hl-gelb.md-hl-default { --hl: #6b5a0c; }
+  .md mark:not(.md-hl) { background: #8a5a00; color: #fff3d6; box-shadow: 0 0 0 1px #d9961a; }
+}
+.hl-picker { position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 10px; display: flex; flex-direction: column; gap: 8px; user-select: none; }
+.hl-picker[hidden] { display: none; }
+.hl-swatches { display: grid; grid-template-columns: repeat(8, 24px); gap: 5px; }
+.hl-sw { width: 24px; height: 24px; padding: 0; border: 1px solid color-mix(in srgb, var(--text) 25%, transparent); border-radius: 6px; background: var(--hl); cursor: pointer; }
+.hl-sw:hover { border-color: var(--text); }
+.hl-sw:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hl-sw.current { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+.hl-remove { padding: 4px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; }
+.hl-remove:hover:not(:disabled) { background: var(--hover); }
+.hl-remove:disabled { opacity: .45; cursor: default; }
+.tb-hl-bar { fill: #f5c400; }
 .editor-tools { flex-wrap: wrap; row-gap: 6px; }
 .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
 .toolbar[hidden] { display: none; } /* Schreibschutz mit readOnlyTools: 'hide' */

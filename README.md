@@ -17,7 +17,7 @@ und seine Regeln aus `app.css`). Die Module sind verschoben, nicht neu geschrieb
 | `src/markdown.js` | `NoNotesMarkdown` | sicherer Markdown-Renderer mit Fragen, Entscheiden, Aufgaben, Tabellen, Videos, Pfaden, Platzhaltern |
 | `src/tasks.js`, `src/questions.js`, `src/dates.js` | `NoNotesTasks`, `NoNotesQuestions`, `NoNotesDates` | Aufgaben, Fragen/Entscheide, Termine im Text |
 | `src/tables.js` | `NoNotesTables` | Tabellen (einfach und mit Rahmen): lesen, schreiben, Schritte des Editors |
-| `src/editing.js` | `NoNotesEditing` | Textfunktionen der Toolleiste |
+| `src/editing.js` | `NoNotesEditing` | Textfunktionen der Toolleiste (Fett, Listen, Hervorheben …) |
 | `src/mentions.js` | `NoNotesMentions` | Vorschläge für `@kürzel` |
 | `src/embeds.js` | `NoNotesEmbeds` | Videoadressen (YouTube, Vimeo, Dailymotion) |
 | `src/placeholders.js` | `NoNotesPlaceholders` | ausfüllbare Platzhalter `{{?Name}}` |
@@ -29,7 +29,7 @@ und seine Regeln aus `app.css`). Die Module sind verschoben, nicht neu geschrieb
 ## Einbinden
 
 ```json
-"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.3.0" }
+"devDependencies": { "nonotes-editor": "github:CDRO/NoNotes-editor#v1.4.0" }
 ```
 
 Der Build des Gastgebers kopiert die Dateien in sein Ergebnis, zum Beispiel:
@@ -83,6 +83,14 @@ ed.get(); ed.set('Neu'); ed.mode('preview'); ed.insert('Liebe {{?Name}}'); await
 
 Eine abgeschaltete Art hat keinen Knopf und keine Taste, ist in der Vorschau gewöhnlicher Text (auch als Block «?!```»), zählt nicht im Fuss
 und in `counts()`; der Text wird nie verändert. Einzelheiten und Folgen: [docs/DESIGN.md](docs/DESIGN.md) §4c.
+
+### Nummerierte Listen und Hervorheben (v1.4.0)
+
+- Eine nummerierte Liste beginnt mit der Nummer ihres ersten Punkts (`4. …` → `<ol start="4">`), eine eingerückte Zeile darunter gehört zum Punkt.
+- `==Text==` hebt gelb hervor, `==Text=={farbe}` in einer der 16 Farben (`rot`/`red`, `orange`, `bernstein`/`amber`, `gelb`/`yellow`, `limette`/`lime`,
+  `gruen`/`grün`/`green`, `smaragd`/`emerald`, `tuerkis`/`türkis`/`teal`, `cyan`, `himmelblau`/`sky`, `blau`/`blue`, `indigo`, `violett`/`violet`, `purpur`/`purple`,
+  `pink`, `grau`/`gray`). Ausgabe `<mark class="md-hl md-hl-rot">`; `NoNotesMarkdown.HIGHLIGHTS` listet Kennung, englischen und angezeigten Namen.
+- Toolleiste: Knopf **Hervorheben** (Farbfenster, auch «Hervorhebung entfernen»), Taste **Ctrl+Shift+H** (gelb). Einzelheiten: [docs/DESIGN.md](docs/DESIGN.md) §4d.
 
 ### Platzhalter ausfüllen (Tasten)
 

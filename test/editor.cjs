@@ -35,7 +35,7 @@ const previewHas = (page, sel) => page.waitForSelector('#preview ' + sel);
 async function runBasics(browser, part) {
   const page = await open(browser);
   assert.equal(await page.$eval('.nn-editor', r => r.className), 'nn-editor mode-split');
-  assert.equal(await page.$$eval('#mdToolbar button[data-cmd]', b => b.length), 17, 'Knöpfe der Toolleiste');
+  assert.equal(await page.$$eval('#mdToolbar button[data-cmd]', b => b.length), 18, 'Knöpfe der Toolleiste');
   assert.ok(await page.$('#attachBtn:not([hidden])'), 'Bild einfügen mit Bildern des Gastgebers');
   await previewHas(page, 'h1');
   assert.equal(await page.$eval('#preview h1', h => h.textContent), 'Start');
@@ -709,6 +709,208 @@ async function runV13(browser, part) {
   await page.close();
 }
 
+/* v1.4.0: Hervorheben (Knopf, Farbauswahl, Ctrl+Shift+H, Vorschau, Hell/Dunkel) und nummerierte Listen mit Startnummer. */
+async function runV14(browser, part) {
+  let page = await open(browser);
+  const sel = (a, b) => page.evaluate(([x, y]) => { const ta = document.getElementById('body'); ta.focus(); ta.setSelectionRange(x, y); }, [a, b]);
+  const bg = q => page.$eval(q, m => getComputedStyle(m).backgroundColor);
+  const picker = '.hl-picker:not([hidden])';
+
+  // 1. Knopf bei Fett, Kursiv, Durchgestrichen
+  assert.deepEqual(await page.$$eval('#mdToolbar button[data-cmd]', b => b.slice(0, 5).map(x => x.dataset.cmd)), ['bold', 'italic', 'strike', 'highlight', 'code']);
+  assert.equal(await page.$eval('#mdToolbar [data-cmd="highlight"]', b => b.getAttribute('aria-label')), 'Hervorheben');
+  assert.ok((await page.$eval('#mdToolbar [data-cmd="highlight"]', b => b.title)).includes('Ctrl+Shift+H'));
+  assert.ok(await page.$('#mdToolbar [data-cmd="highlight"] svg'), 'Symbol');
+  part('Knopf «Hervorheben» neben Fett, Kursiv, Durchgestrichen');
+
+  // 2. Auswahl öffnet das Fenster mit 16 Farben, Gelb zuerst als Vorgabe
+  await setText(page, 'ein Wort hier', 0);
+  await sel(4, 8);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector(picker);
+  assert.equal(await page.$eval('#mdToolbar [data-cmd="highlight"]', b => b.getAttribute('aria-expanded')), 'true');
+  assert.equal(await page.$$eval('.hl-sw', n => n.length), 16);
+  const titles = await page.$$eval('.hl-sw', n => n.map(x => x.title));
+  assert.equal(titles[0], 'Gelb (Vorgabe)');
+  assert.deepEqual(titles.slice(1, 4), ['Rot', 'Orange', 'Bernstein']);
+  assert.equal(await page.$eval('.hl-sw', b => b.dataset.color), 'gelb');
+  assert.ok(await page.$eval('.hl-remove', b => b.disabled), 'Entfernen: hier ist keine Hervorhebung');
+  assert.equal(await page.$eval('.hl-remove', b => b.textContent), 'Hervorhebung entfernen');
+  part('Farbwahl: 16 Farben, Gelb zuerst und als Vorgabe, Entfernen noch gesperrt');
+
+  // 3. Farbe wählen
+  await page.click('.hl-sw[data-color="rot"]');
+  await page.waitForSelector('.hl-picker', { state: 'hidden' });
+  assert.equal(await text(page), 'ein ==Wort=={rot} hier');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'body', 'Fokus zurück im Text');
+  await previewHas(page, 'mark.md-hl.md-hl-rot');
+  assert.equal(await page.$eval('#preview mark.md-hl-rot', m => m.textContent), 'Wort');
+  assert.equal(await bg('#preview mark.md-hl-rot'), 'rgb(250, 214, 214)', 'Füllung hell: #fad6d6');
+  part('Farbe wählen: ==Wort=={rot}, Vorschau mit md-hl-rot');
+
+  // 4. Cursor darin: aktuelle Farbe markiert, andere Farbe, gelb, entfernen
+  await sel(7, 7);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector(picker);
+  assert.equal(await page.$eval('.hl-sw.current', b => b.dataset.color), 'rot');
+  assert.ok(!(await page.$eval('.hl-remove', b => b.disabled)));
+  await page.click('.hl-sw[data-color="gruen"]');
+  assert.equal(await text(page), 'ein ==Wort=={gruen} hier');
+  await sel(7, 7);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.click('.hl-sw[data-color="gelb"]');
+  assert.equal(await text(page), 'ein ==Wort== hier', 'gelb: ohne Namen');
+  await previewHas(page, 'mark.md-hl-gelb.md-hl-default');
+  assert.equal(await bg('#preview mark.md-hl'), 'rgb(255, 240, 138)', 'schlichtes Gelb: kräftiger (#fff08a)');
+  await sel(7, 7);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.click('.hl-remove');
+  assert.equal(await text(page), 'ein Wort hier');
+  await page.waitForFunction(() => !document.querySelector('#preview mark.md-hl'));
+  part('In einer Hervorhebung: Farbe ändern, gelb, entfernen');
+
+  // 5. Esc, Klick daneben, Tasten im Fenster
+  await sel(4, 8);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector(picker);
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.color), 'gelb', 'Fokus auf Gelb');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.color), 'rot');
+  await page.keyboard.press('Enter');
+  assert.equal(await text(page), 'ein ==Wort=={rot} hier', 'Enter wählt');
+  await sel(7, 7);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector(picker);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.hl-picker', { state: 'hidden' });
+  assert.equal(await text(page), 'ein ==Wort=={rot} hier', 'Esc ändert nichts');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'body');
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector(picker);
+  await page.mouse.click(5, 5);
+  await page.waitForSelector('.hl-picker', { state: 'hidden' });
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector(picker);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector('.hl-picker', { state: 'hidden' });
+  part('Fenster: Pfeiltasten und Enter, Esc, Klick daneben, Knopf noch einmal schliesst');
+
+  // 6. Ctrl+Shift+H
+  await setText(page, 'ein Wort hier', 0);
+  await sel(4, 8);
+  await page.keyboard.press('Control+Shift+H');
+  assert.equal(await text(page), 'ein ==Wort== hier', 'Ctrl+Shift+H: gelb');
+  assert.ok(!(await page.$(picker)), 'ohne Fenster');
+  await page.keyboard.press('Control+Shift+H');
+  assert.equal(await text(page), 'ein Wort hier', 'noch einmal: weg');
+  await setText(page, 'ein ==Wort=={blau} hier', 0);
+  await sel(7, 7);
+  await page.keyboard.press('Control+Shift+H');
+  assert.equal(await text(page), 'ein ==Wort== hier', 'in einer anderen Farbe: gelb');
+  await setText(page, 'ab', 1);
+  await page.keyboard.press('Control+Shift+H');
+  assert.equal(await text(page), 'a==hervorgehoben==b', 'ohne Markierung: Platzhalterwort');
+  assert.equal(await page.evaluate(() => { const t = document.getElementById('body'); return t.value.slice(t.selectionStart, t.selectionEnd); }), 'hervorgehoben');
+  await page.keyboard.type('X');
+  assert.equal(await text(page), 'a==X==b');
+  await page.evaluate(() => window.ed.runCommand('highlight'));
+  assert.equal(await text(page), 'aXb', 'runCommand ohne Knopf: wie die Taste');
+  part('Ctrl+Shift+H: gelb, wieder weg, andere Farbe wird gelb, Platzhalterwort, runCommand');
+
+  // 7. Mehrere Zeilen, Liste, Tabellenfeld
+  await setText(page, '- eins\n- zwei', 2);
+  await sel(2, 6);
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.click('.hl-sw[data-color="blau"]');
+  assert.equal(await text(page), '- ==eins=={blau}\n- zwei');
+  await previewHas(page, 'li mark.md-hl-blau');
+  part('In Listenpunkten');
+
+  // 8. Suchtreffer sehen anders aus als Hervorhebungen
+  const both = await page.evaluate(() => {
+    const d = document.createElement('div');
+    d.className = 'md';
+    d.innerHTML = NoNotesMarkdown.render('==gelb== und klar', { highlight: 'klar' });
+    document.body.appendChild(d);
+    const [hl, hit] = d.querySelectorAll('mark');
+    const cs = x => getComputedStyle(x).backgroundColor;
+    const r = [hl.className, hit.className, cs(hl), cs(hit)];
+    d.remove();
+    return r;
+  });
+  assert.equal(both[0], 'md-hl md-hl-gelb md-hl-default');
+  assert.equal(both[1], '');
+  assert.notEqual(both[2], both[3], 'Suchtreffer und Hervorhebung unterscheiden sich: ' + both);
+  part('Suchtreffer (blosses <mark>) anders als md-hl');
+
+  // 9. Dunkel
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await setText(page, '==a=={rot} ==b=={grau} ==c==', 0);
+  await previewHas(page, 'mark.md-hl-grau');
+  assert.equal(await bg('#preview mark.md-hl-rot'), 'rgb(66, 31, 31)', 'dunkel: #421f1f');
+  assert.equal(await bg('#preview mark.md-hl-grau'), 'rgb(47, 48, 50)', 'dunkel: #2f3032');
+  assert.equal(await bg('#preview mark.md-hl-default'), 'rgb(107, 90, 12)');
+  assert.equal(await page.$eval('#preview mark.md-hl-rot', m => getComputedStyle(m).printColorAdjust || getComputedStyle(m).webkitPrintColorAdjust), 'exact');
+  await page.emulateMedia({ colorScheme: 'light' });
+  part('Dunkler Modus: Füllung dunkel, Farbe für den Druck exakt');
+
+  // 10. Alle 16 Farben: Wert der Füllung hell
+  await setText(page, M16, 0);
+  await page.waitForFunction(() => document.querySelectorAll('#preview mark.md-hl').length === 16);
+  const fills = await page.$$eval('#preview mark.md-hl', n => n.map(m => m.className.match(/md-hl-(\w+)/)[1] + ' ' + getComputedStyle(m).backgroundColor));
+  assert.equal(fills.join('|'), EXPECT16.join('|'));
+  part('16 Farben mit ihrer hellen Füllung');
+
+  // 11. Schreibschutz, Englisch
+  await page.evaluate(() => window.ed.setReadOnly(true));
+  assert.ok(await page.$eval('#mdToolbar [data-cmd="highlight"]', b => b.disabled));
+  await page.evaluate(() => window.ed.runCommand('highlight', document.querySelector('#mdToolbar [data-cmd="highlight"]')));
+  assert.ok(!(await page.$(picker)), 'schreibgeschützt: kein Fenster');
+  await page.close();
+  page = await open(browser, '?lang=en');
+  await setText(page, 'one two', 0);
+  await page.evaluate(() => document.getElementById('body').setSelectionRange(0, 3));
+  assert.equal(await page.$eval('#mdToolbar [data-cmd="highlight"]', b => b.getAttribute('aria-label')), 'Highlight');
+  await page.click('#mdToolbar [data-cmd="highlight"]');
+  await page.waitForSelector(picker);
+  assert.equal((await page.$$eval('.hl-sw', n => n.map(x => x.title))).slice(0, 3).join(), 'Yellow (default),Red,Orange');
+  assert.equal(await page.$eval('.hl-sw[data-color="gruen"]', b => b.title), 'Green');
+  await page.click('.hl-sw[data-color="gruen"]');
+  assert.equal(await text(page), '==one=={green} two', 'englische Oberfläche: englischer Name');
+  await previewHas(page, 'mark.md-hl-gruen');
+  await setText(page, 'x', 1);
+  await page.keyboard.press('Control+Shift+H');
+  assert.equal(await text(page), 'x==highlighted==');
+  part('Schreibschutz; Englisch: Namen, ==one=={green}, Platzhalter «highlighted»');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+
+  // 12. Nummerierte Liste mit Startnummer in der Vorschau, Enter und Fortsetzungszeile
+  page = await open(browser);
+  await setText(page, '# Titel\n4. Vierter Punkt');
+  await previewHas(page, 'ol[start="4"]');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Fünfter');
+  assert.equal(await text(page), '# Titel\n4. Vierter Punkt\n5. Fünfter');
+  await page.waitForFunction(() => document.querySelectorAll('#preview ol[start="4"] li').length === 2);
+  assert.equal(await page.$eval('#preview ol', o => o.start), 4);
+  await setText(page, '2. Zweiter\n  mehr Text\n3. Dritter');
+  await page.waitForFunction(() => { const o = document.querySelector('#preview ol'); return o && o.start === 2 && o.querySelectorAll(':scope > li').length === 2; });
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Vierter');
+  assert.equal(await text(page), '2. Zweiter\n  mehr Text\n3. Dritter\n4. Vierter');
+  assert.deepEqual(page.errors, []);
+  await page.close();
+  part('Nummerierte Liste: ol start in der Vorschau, Enter zählt weiter, Fortsetzungszeile gehört zu Punkt 2');
+}
+
+const HL16 = [['rot', '#fad6d6'], ['orange', '#fde4d3'], ['bernstein', '#fdeed3'], ['gelb', '#fdf6d3'], ['limette', '#eef9d7'], ['gruen', '#daf6df'], ['smaragd', '#d8f8eb'],
+  ['tuerkis', '#d8f8f5'], ['cyan', '#d6f5fa'], ['himmelblau', '#d5edfc'], ['blau', '#d6e2fa'], ['indigo', '#d9d9f7'], ['violett', '#e4d8f8'], ['purpur', '#f0d9f7'],
+  ['pink', '#f9d7e8'], ['grau', '#e6e7ea']];
+const M16 = HL16.map(([id]) => `==${id}=={${id}}`).join(' ');
+const rgb = hex => 'rgb(' + [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ') + ')';
+const EXPECT16 = HL16.map(([id, hex]) => id + ' ' + rgb(hex));
+
 suite('Editor-Test', [
   { name: 'Grundlagen: Aufbau, Darstellungen, Toolleiste, Tasten, Aufgaben in der Vorschau, Speichern', run: runBasics },
   { name: 'Listen unter dem Cursor: @kürzel, [[Verweise]], Datumsauswahl, Tabellen, Platzhalter', run: runPopups },
@@ -718,4 +920,5 @@ suite('Editor-Test', [
   { name: 'v1.2.0: Enter im Platzhalter, Enter im Feld des Gastgebers, Fortsetzen, Datumsauswahl bei Fristen', run: runV12 },
   { name: 'v1.3.0: Fragen und Entscheide einzeln abschaltbar (Toolleiste, Tasten, Vorschau, Zähler, später umschalten)', run: runV13 },
   { name: 'Texte: Englisch mit Ersetzung durch den Gastgeber', run: runLabels },
+  { name: 'v1.4.0: Hervorheben (Knopf, Farbwahl, Ctrl+Shift+H, Vorschau, dunkel), nummerierte Liste mit Startnummer', run: runV14 },
 ], { browser: true });
